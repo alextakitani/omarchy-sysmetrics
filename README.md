@@ -31,17 +31,16 @@ Nine metrics, each of which you choose to show on the bar or keep in the popup:
 omarchy plugin add https://github.com/alextakitani/omarchy-sysmetrics.git --enable
 ```
 
-Then add it to your bar in `~/.config/omarchy/shell.json`:
+That is the whole installation: the widget places itself on the right of the
+bar and starts with CPU and memory. Everything else is optional — you can add
+or remove metrics by clicking their headings in the popup, and never touch a
+config file.
 
-```jsonc
-{
-  "id": "sysmetrics",
-  "metrics": ["cpu", "cputemp", "memory", "gpu", "vram", "gputemp", "storage", "network", "disk"],
-  "intervalMs": 2000
-}
+To place it somewhere else:
+
+```bash
+omarchy plugin enable sysmetrics --section center      # or: --before omarchy.clock
 ```
-
-Every field is optional. With no configuration at all it shows CPU and memory.
 
 ## Using it
 
@@ -58,6 +57,10 @@ Every section is present in the popup whether or not its metric is on the bar,
 so a metric you have hidden is still reachable to bring back.
 
 ## Configuration
+
+The popup covers the common cases (which metrics show, how often they refresh),
+so this is only needed for the settings it does not expose. Add the keys you
+want to the widget's entry in `~/.config/omarchy/shell.json`:
 
 ```jsonc
 {
