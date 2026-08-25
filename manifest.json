@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
-  "id": "sysmetrics",
+  "id": "takitani.sysmetrics",
   "name": "System Metrics",
   "version": "1.0.0",
-  "author": "alex",
+  "author": "Alex Takitani",
   "description": "Live CPU, memory, network, disk, GPU and temperature gauges with a detail popup",
   "kinds": [
     "bar-widget"

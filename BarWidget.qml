@@ -15,7 +15,7 @@ import "js/config.js" as Config
 // monitoring daemon and spawns no subprocess.
 BarWidget {
   id: root
-  moduleName: "sysmetrics"
+  moduleName: "takitani.sysmetrics"
 
   readonly property var config: Config.normalizeConfig(root.settings)
 
@@ -456,7 +456,7 @@ BarWidget {
   }
 
   IpcHandler {
-    target: "sysmetrics"
+    target: "takitani.sysmetrics"
 
     function refresh(): void { readers.sampleAll() }
     function toggleMetric(id: string): void { root.toggleMetric(id) }

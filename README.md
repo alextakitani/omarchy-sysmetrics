@@ -39,7 +39,7 @@ config file.
 To place it somewhere else:
 
 ```bash
-omarchy plugin enable sysmetrics --section center      # or: --before omarchy.clock
+omarchy plugin enable takitani.sysmetrics --section center      # or: --before omarchy.clock
 ```
 
 ## Using it
@@ -64,7 +64,7 @@ want to the widget's entry in `~/.config/omarchy/shell.json`:
 
 ```jsonc
 {
-  "id": "sysmetrics",
+  "id": "takitani.sysmetrics",
   "metrics": ["cpu", "memory"],   // any subset, in any order
   "intervalMs": 2000,             // 500–15000
   "historyLength": 60,            // samples kept per metric

@@ -9,7 +9,7 @@ import "js/format.js" as Format
 // gated on this panel being open — the Sampler watches `popupOpen`.
 Ui.Panel {
   id: root
-  moduleName: "sysmetrics"
+  moduleName: "takitani.sysmetrics"
   manageIpc: false
 
   property var anchorItem: null
