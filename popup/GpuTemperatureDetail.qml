@@ -15,11 +15,6 @@ DetailSection {
 
   readonly property real temperature: sampler ? sampler.gpuTemperature : NaN
 
-  function normalize(celsius) {
-    if (isNaN(celsius)) return NaN
-    return Math.max(0, Math.min(1, (celsius - 30) / (95 - 30)))
-  }
-
   title: "GPU temperature"
   headline: Format.formatTempShort(temperature)
 
@@ -36,13 +31,5 @@ DetailSection {
     showThreshold: true
     revision: root.sampler ? root.sampler.revision : 0
     stroke: !isNaN(root.temperature) && root.temperature >= 85 ? Color.urgent : Color.accent
-  }
-
-  MeterRow {
-    Layout.fillWidth: true
-    label: "Die"
-    value: Format.formatTempFull(root.temperature)
-    ratio: root.normalize(root.temperature)
-    urgent: !isNaN(root.temperature) && root.temperature >= 85
   }
 }

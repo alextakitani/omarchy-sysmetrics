@@ -14,7 +14,7 @@ DetailSection {
   readonly property real gpuUsage: sampler ? sampler.gpuUsage : NaN
   readonly property string gpuCard: sampler ? sampler.gpuCard : ""
 
-  title: "Graphics"
+  title: "GPU"
   headline: Format.formatPercent(gpuUsage)
   visible: root.gpuCard !== ""
 

@@ -24,7 +24,7 @@ DetailSection {
     return Math.max(0, Math.min(1, ratio))
   }
 
-  title: "Temperature"
+  title: "CPU temperature"
   headline: Format.formatTempShort(temperature)
 
   // Unfilled line across the 30-95 band, never a filled area from zero: a
@@ -60,14 +60,5 @@ DetailSection {
       ratio: root.normalize(sensorRow.modelData.celsius)
       urgent: !isNaN(sensorRow.modelData.celsius) && sensorRow.modelData.celsius >= 85
     }
-  }
-
-  MeterRow {
-    Layout.fillWidth: true
-    visible: !root.sensors || root.sensors.length === 0
-    label: root.temperatureLabel
-    value: Format.formatTempFull(root.temperature)
-    ratio: root.normalize(root.temperature)
-    urgent: !isNaN(root.temperature) && root.temperature >= 85
   }
 }
