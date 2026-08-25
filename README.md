@@ -25,6 +25,11 @@ Nine metrics, each of which you choose to show on the bar or keep in the popup:
 | Network | download and upload | per-direction rates, interface |
 | Disk I/O | read and write | per-device read and write rates |
 
+Clicking the strip opens the detail view, which is also where you choose what
+the bar shows:
+
+<img src="docs/popup.png" alt="The detail popup" width="420">
+
 ## Install
 
 ```bash
