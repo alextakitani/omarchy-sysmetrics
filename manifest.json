@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "id": "sysmetrics",
+  "name": "System Metrics",
+  "version": "1.0.0",
+  "author": "alex",
+  "description": "Live CPU, memory, network, disk, GPU and temperature gauges with a detail popup",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "System Metrics",
+    "description": "Live system metric gauges; click for per-core and per-device detail",
+    "category": "System",
+    "allowMultiple": false,
+    "defaultSection": "right"
+  }
+}
