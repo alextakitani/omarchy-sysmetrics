@@ -42,6 +42,15 @@ To place it somewhere else:
 omarchy plugin enable takitani.sysmetrics --section center      # or: --before omarchy.clock
 ```
 
+### Removing it
+
+```bash
+omarchy plugin remove takitani.sysmetrics
+```
+
+That takes the widget off the bar and deletes the plugin. To keep it installed
+but hide it, `omarchy plugin disable takitani.sysmetrics` instead.
+
 ## Using it
 
 - **Click** the strip to open the popup.
