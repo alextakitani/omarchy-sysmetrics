@@ -382,14 +382,46 @@ mount point kept as the name — on this machine that folds five rows into `/`.
 Anything under a gibibyte is dropped, which removes pseudo-filesystems like
 `/sys/firmware/efi/efivars` that otherwise appear with a real-looking 57%.
 
-The mount table is the one input here that a user controls directly: FUSE
-mounts can be created in a loop, with mount points of any length. Since this
-parse runs on a timer inside the shared shell, the table is bounded three
-times over rather than trusted — 64 KiB at the pipe (`head -c`, so the
-oversized output never becomes a QML string at all), 32 rows retained, and
-128 characters of mount point per row. Output that reaches the byte ceiling
-was truncated mid-row, and is discarded whole: a missing capacity reading is
-better than a torn row presented as a measurement.
+The mount table is user-controlled input — FUSE mounts can be created in a
+loop, with mount points of any length — so `df` is capped at 64 KiB by
+`head -c` before its output ever becomes a QML string, then capped again at
+32 rows and 128 characters of mount point. See *Every recurring reader is
+bounded* below for why.
+
+## Every recurring reader is bounded
+
+The plugin runs inside the shared shell process. Anything unbounded here is
+not a widget that misbehaves — it is the user's whole desktop, and on the
+sampling timer it is that cost repeated forever.
+
+So no reader trusts the size of what it reads, `/proc` and `/sys` included.
+Their *contents* come from the kernel, but their row counts and their names
+do not: interfaces can be added in bulk with `ip link add`, block devices
+come and go, mount points are paths a user chose. Each reader therefore
+carries three ceilings, named as constants next to the parser that enforces
+them:
+
+| Reader | Bytes | Rows | Name |
+| --- | --- | --- | --- |
+| `df` (storage) | 64 KiB, at the pipe | 32 | 128 chars of mount point |
+| `/proc/net/dev` | 256 KiB | 128 interfaces | 64 chars |
+| `/proc/diskstats` | 256 KiB | 128 devices | 64 chars |
+| `/proc/stat` | 256 KiB | 1024 cores | — |
+
+Two rules hold across all of them:
+
+- **Fail closed on truncation.** Input at or past its byte ceiling is
+  discarded whole, never parsed to a torn final row. A metric that reads as
+  unavailable is honest; a number assembled from half a line is not.
+- **The ceiling is not a display limit.** It is the point past which the
+  input has stopped describing this machine. A real host has tens of
+  interfaces, not thousands; the kernel emits `cpu0..cpuN-1` densely, so a
+  core index outside the ceiling is not a core being missed.
+
+That last one has teeth in `/proc/stat`: the core index is written straight
+into a sparse array, so it sets the array's length. A single
+`cpu2000000000` line would make every consumer that walks `cores.length`
+loop two billion times per tick.
 
 ## Uptime and the interval control
 

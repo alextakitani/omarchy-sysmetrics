@@ -11,6 +11,22 @@
 // are meaningless for "disk activity" (zram is compressed RAM, not disk).
 var WHOLE_DEVICE_RE = /^(nvme\d+n\d+|sd[a-z]+|vd[a-z]+|mmcblk\d+|hd[a-z]+)$/;
 
+// Ceilings for the recurring procfs readers. Every one of these files runs on
+// the sampling timer inside the shared shell, and every one has a row count or
+// a name length that something outside this plugin decides: interfaces can be
+// added in bulk (`ip link add`), block devices appear and disappear, and names
+// in both are strings the kernel accepted, not strings we chose. Unbounded
+// work repeated every tick is the failure that matters here -- see the
+// DF_MAX_* block for the same reasoning applied to the mount table.
+//
+// A file at or past its byte ceiling is discarded whole rather than parsed to
+// a torn final row: a missing reading is better than a fabricated one.
+var PROC_MAX_BYTES = 262144;
+var NET_DEV_MAX_ROWS = 128;
+var DISKSTATS_MAX_ROWS = 128;
+var MAX_NAME = 64;          // interface and device names; IFNAMSIZ is 16
+var MAX_CORES = 1024;
+
 // Parse /proc/stat into an aggregate "cpu" line plus per-core "cpuN" lines.
 //
 // Field order after the label: user nice system idle iowait irq softirq steal guest guest_nice
@@ -31,6 +47,7 @@ function parseProcStat(text) {
     if (typeof text !== "string" || text.length === 0) {
         return result;
     }
+    if (text.length >= PROC_MAX_BYTES) return result;   // truncated: fail closed
 
     var lines = text.split("\n");
     for (var i = 0; i < lines.length; i++) {
@@ -70,8 +87,13 @@ function parseProcStat(text) {
         if (label === "cpu") {
             result.aggregate = entry;
         } else {
+            // The index is written straight into a sparse array, so it sets
+            // the array's length: a single "cpu2000000000" line would make
+            // every consumer that walks cores.length loop two billion times.
+            // The kernel only ever emits a dense cpu0..cpuN-1, so anything
+            // outside the ceiling is not a core we are missing.
             var coreIndex = parseInt(label.substring(3), 10);
-            if (!isNaN(coreIndex)) {
+            if (!isNaN(coreIndex) && coreIndex >= 0 && coreIndex < MAX_CORES) {
                 result.cores[coreIndex] = entry;
             }
         }
@@ -158,16 +180,18 @@ function parseNetDev(text) {
     if (typeof text !== "string" || text.length === 0) {
         return result;
     }
+    if (text.length >= PROC_MAX_BYTES) return result;   // truncated: fail closed
 
+    var rows = 0;
     var lines = text.split("\n");
-    for (var i = 0; i < lines.length; i++) {
+    for (var i = 0; i < lines.length && rows < NET_DEV_MAX_ROWS; i++) {
         var line = lines[i];
         var colonIdx = line.indexOf(":");
         if (colonIdx === -1) continue;
 
         var namePart = line.substring(0, colonIdx);
         var iface = namePart.replace(/^\s+/, "").replace(/\s+$/, "");
-        if (iface.length === 0) continue;
+        if (iface.length === 0 || iface.length > MAX_NAME) continue;
         // Skip header remnants like "face" or "|bytes" if any slip through.
         if (iface.indexOf("|") !== -1) continue;
 
@@ -181,6 +205,7 @@ function parseNetDev(text) {
         if (isNaN(rxBytes) || isNaN(txBytes)) continue;
 
         result[iface] = { rxBytes: rxBytes, txBytes: txBytes };
+        rows += 1;
     }
 
     return result;
@@ -248,9 +273,11 @@ function parseDiskstats(text) {
     if (typeof text !== "string" || text.length === 0) {
         return result;
     }
+    if (text.length >= PROC_MAX_BYTES) return result;   // truncated: fail closed
 
+    var rows = 0;
     var lines = text.split("\n");
-    for (var i = 0; i < lines.length; i++) {
+    for (var i = 0; i < lines.length && rows < DISKSTATS_MAX_ROWS; i++) {
         var line = lines[i].replace(/^\s+/, "");
         if (line.length === 0) continue;
 
@@ -259,6 +286,7 @@ function parseDiskstats(text) {
         if (parts.length < 10) continue;
 
         var name = parts[2];
+        if (name.length > MAX_NAME) continue;
         if (!WHOLE_DEVICE_RE.test(name)) continue;
 
         // parts[3] = field1 ... parts[3 + (n-1)] = fieldN
@@ -268,6 +296,7 @@ function parseDiskstats(text) {
         if (isNaN(readSectors) || isNaN(writeSectors)) continue;
 
         result[name] = { readSectors: readSectors, writeSectors: writeSectors };
+        rows += 1;
     }
 
     return result;
