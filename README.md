@@ -3,11 +3,49 @@
 A bar widget for the [Omarchy](https://omarchy.org/) shell: a strip of live
 system gauges, and a popup with the detail behind them.
 
-Readings come straight from `/proc` and `/sys`. There is no monitoring daemon
-to install and nothing is polled through a subprocess, with one documented
-exception (filesystem capacity, which needs `statvfs`).
+Readings come straight from `/proc` and `/sys` — there is no monitoring daemon
+to install, and nothing to configure to get started.
 
 ![The strip in the bar](docs/strip.png)
+
+## It costs almost nothing to run
+
+A system monitor that measures load should not be a meaningful source of it.
+Out of the box this one samples CPU and memory every two seconds, and that
+whole cycle is **two file reads and about 13µs of parsing** — roughly a
+thousandth of a percent of one core.
+
+That number comes from what the widget does *not* do:
+
+- **No subprocesses on the recurring path.** `/proc` and `/sys` are read
+  directly through the shell's own file API. Shelling out to `awk`, `ps`, or
+  `sensors` on a timer means forking an interpreter every tick, which costs
+  milliseconds of real CPU — hundreds of times more than reading the same
+  file, and it recurs forever. The plugin spawns exactly one process, ever:
+  `df`, for filesystem capacity, which is the one reading `/proc` genuinely
+  cannot provide. It runs every fifteenth tick, and only while Storage is
+  actually being shown.
+- **Nothing is sampled unless it is being looked at.** With the popup shut,
+  only the metrics you pinned to the bar cost anything; the rest are idle. Open
+  the popup and everything samples, because every section needs live data.
+  Close it and they stop.
+- **Each gauge repaints on its own samples.** A CPU sample redraws the CPU
+  gauge, not the network one. That sounds obvious, but the naive version — one
+  "something changed" counter — makes N gauges repaint N times per tick, and a
+  canvas repaint is far more expensive than the sample that triggered it.
+- **Readings are bounded.** Mount tables and interface lists are inputs whose
+  size someone else controls, so every recurring reader has a byte, row, and
+  name-length ceiling, and discards input that overruns it rather than parsing
+  a torn row. A hostile `/proc` cannot turn the widget into a memory leak
+  inside your shell.
+
+The last two matter more than they look: this runs inside the *shared*
+Quickshell process that draws your whole desktop. Anything wasteful here is not
+a widget misbehaving, it is your bar stuttering.
+
+None of this is asserted on faith — the numbers above are measured, and the
+bounds and gating are covered by the test suite (`tests/run`), including a
+smoke test that runs the real widget inside a real `quickshell`.
 
 ## What it shows
 
