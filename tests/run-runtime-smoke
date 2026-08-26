@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+# Runtime smoke test for takitani.sysmetrics.
+#
+# The unit suite covers js/ under Node, but the QML is where the subtler
+# breakage lives: a metric wired to the wrong revision counter, a ring read
+# without stating its dependency, a renamed property a view still binds to.
+# None of that is a syntax error, so qmllint cannot see it and the unit tests
+# never load it -- it shows up as a chart that is silently, permanently empty.
+#
+# So this assembles a throwaway Quickshell config that symlinks the Omarchy
+# shell's Ui/Commons modules (the popup views import qs.Commons and will not
+# instantiate without them) plus this plugin, runs the real quickshell binary
+# against it, and drives the production Sampler and Readers through real
+# samples. It prints SYSMETRICS_RUNTIME_SMOKE_PASS only when every check
+# holds; any QML error or failed check leaves the marker out and fails here.
+#
+# Nothing is opened, focused, or written outside the temp config.
+
+set -u
+
+plugin_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+shell_qml="$plugin_dir/tests/runtime/shell.qml"
+shell_root=/usr/share/omarchy/shell
+
+if ! command -v quickshell >/dev/null 2>&1; then
+  echo "runtime smoke: SKIP (quickshell not installed)"
+  exit 0
+fi
+
+if [ ! -d "$shell_root/Commons" ]; then
+  echo "runtime smoke: SKIP ($shell_root/Commons not found)"
+  exit 0
+fi
+
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+
+ln -s "$shell_root/Ui" "$tmp/Ui"
+ln -s "$shell_root/Commons" "$tmp/Commons"
+ln -s "$plugin_dir" "$tmp/plugin"
+ln -s "$shell_qml" "$tmp/shell.qml"
+
+log="$tmp/quickshell.log"
+timeout 25 quickshell -p "$tmp/shell.qml" --no-color >"$log" 2>&1
+status=$?
+
+grep -E "SYSMETRICS_|ERROR|error:" "$log" | sed 's/^.*qml: //' | head -40
+
+if grep -q "SYSMETRICS_RUNTIME_SMOKE_PASS" "$log"; then
+  echo "runtime smoke: PASS"
+  exit 0
+fi
+
+if grep -q "SYSMETRICS_RUNTIME_SMOKE_FAIL" "$log"; then
+  echo "runtime smoke: FAIL (a check did not hold; see above)" >&2
+  exit 1
+fi
+
+echo "runtime smoke: FAIL (no result marker; quickshell exited $status)" >&2
+exit 1

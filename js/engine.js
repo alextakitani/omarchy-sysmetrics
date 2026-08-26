@@ -199,3 +199,22 @@ function emphasize(ratio) {
     if (r > 1) r = 1;
     return Math.pow(r, 0.6);
 }
+
+// Exported for the test suite. QML has no `module`, so this block is inert
+// there and `.pragma library` still applies; Node reads it as an ordinary
+// CommonJS module, which is what lets every function above be tested without
+// a running shell. Keep this list in sync -- the suite asserts on it, so a
+// renamed or forgotten export fails a test rather than going unnoticed.
+if (typeof module === "object" && typeof module.exports === "object") {
+    module.exports = {
+        makeRing: makeRing,
+        ringPush: ringPush,
+        ringValues: ringValues,
+        ringMax: ringMax,
+        cpuBusyPercent: cpuBusyPercent,
+        rateBetween: rateBetween,
+        rollingCeiling: rollingCeiling,
+        normalizeLevel: normalizeLevel,
+        emphasize: emphasize
+    };
+}

@@ -1,0 +1,62 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  unit:
+    # The Node layer needs nothing but Node, so it runs on every push and is
+    # the gate that matters for a parser change.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Unit tests
+        run: node --test tests/parsers.test.js tests/engine.test.js tests/format.test.js tests/config.test.js
+
+  engine:
+    # The same contract under Qt's V4 engine. Qt is available from apt, so
+    # this needs no Omarchy and no display.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Qt test tooling
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            qt6-declarative-dev-tools qml6-module-qtqml qml6-module-qttest \
+            qml6-module-qtquick
+      - name: Engine tests
+        run: |
+          runner=$(command -v qmltestrunner6 || command -v qmltestrunner \
+                   || echo /usr/lib/qt6/bin/qmltestrunner)
+          QT_QPA_PLATFORM=offscreen "$runner" -input tests
+
+  lint:
+    # qmllint cannot resolve the Omarchy shell modules on a runner, so this
+    # checks syntax only -- enough to catch a malformed QML file before it
+    # reaches a user, which is the failure the other layers cannot see.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install qmllint
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends qt6-declarative-dev-tools
+      - name: Syntax check every QML file
+        run: |
+          lint=$(command -v qmllint6 || command -v qmllint \
+                 || echo /usr/lib/qt6/bin/qmllint)
+          status=0
+          while IFS= read -r file; do
+            if "$lint" --bare "$file" 2>&1 | grep -qiE "Syntax|Unexpected token|Expected token|unterminated"; then
+              echo "::error file=$file::QML syntax error"
+              "$lint" --bare "$file" 2>&1 | grep -iE "Syntax|Unexpected token|Expected token|unterminated"
+              status=1
+            fi
+          done < <(find . -name '*.qml' -not -path './.git/*')
+          exit $status

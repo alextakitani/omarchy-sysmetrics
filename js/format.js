@@ -150,3 +150,26 @@ function formatAge(seconds) {
     if (m < 60) return m + "m ago";
     return Math.floor(m / 60) + "h ago";
 }
+
+// Exported for the test suite. QML has no `module`, so this block is inert
+// there and `.pragma library` still applies; Node reads it as an ordinary
+// CommonJS module, which is what lets every function above be tested without
+// a running shell. Keep this list in sync -- the suite asserts on it, so a
+// renamed or forgotten export fails a test rather than going unnoticed.
+if (typeof module === "object" && typeof module.exports === "object") {
+    module.exports = {
+        DASH: DASH,
+        isBadNumber: isBadNumber,
+        formatPercent: formatPercent,
+        pickUnit: pickUnit,
+        formatWithOneDecimalBelowTen: formatWithOneDecimalBelowTen,
+        formatRateCompact: formatRateCompact,
+        formatRateFull: formatRateFull,
+        formatBytes: formatBytes,
+        formatKB: formatKB,
+        formatTempShort: formatTempShort,
+        formatTempFull: formatTempFull,
+        formatUptime: formatUptime,
+        formatAge: formatAge
+    };
+}

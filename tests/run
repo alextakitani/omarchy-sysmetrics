@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+# Runs every layer of the suite. This is what CI runs and what to run before
+# pushing.
+#
+#   1. node --test   -- the js/ libraries, thoroughly, in milliseconds
+#   2. qmltestrunner -- the same contract under Qt's V4, the engine the shell
+#                       actually uses, to catch engine divergence
+#   3. runtime smoke -- the production QML instantiated in a real quickshell,
+#                       which is the only layer that can see a binding that
+#                       silently never fires
+#
+# Layers 2 and 3 skip cleanly when their tooling is absent, so this stays
+# runnable on a machine without Qt or Omarchy installed.
+
+set -u
+
+cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." || exit 1
+
+failures=0
+run_layer() {
+  echo
+  echo "== $1"
+  shift
+  if ! "$@"; then
+    failures=$((failures + 1))
+  fi
+}
+
+run_layer "unit (node)" node --test tests/parsers.test.js tests/engine.test.js \
+                                    tests/format.test.js tests/config.test.js
+
+if [ -x /usr/lib/qt6/bin/qmltestrunner ]; then
+  run_layer "engine (qmltestrunner)" /usr/lib/qt6/bin/qmltestrunner -input tests
+else
+  echo
+  echo "== engine (qmltestrunner): SKIP (not installed)"
+fi
+
+run_layer "runtime smoke (quickshell)" tests/run-runtime-smoke
+
+echo
+if [ "$failures" -eq 0 ]; then
+  echo "all layers passed"
+  exit 0
+fi
+echo "$failures layer(s) failed" >&2
+exit 1

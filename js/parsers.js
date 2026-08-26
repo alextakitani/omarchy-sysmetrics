@@ -452,3 +452,25 @@ function parseUptimeSeconds(text) {
     var value = Number(first);
     return isFinite(value) && value >= 0 ? value : NaN;
 }
+
+// Exported for the test suite. QML has no `module`, so this block is inert
+// there and `.pragma library` still applies; Node reads it as an ordinary
+// CommonJS module, which is what lets every function above be tested without
+// a running shell. Keep this list in sync -- the suite asserts on it, so a
+// renamed or forgotten export fails a test rather than going unnoticed.
+if (typeof module === "object" && typeof module.exports === "object") {
+    module.exports = {
+        parseProcStat: parseProcStat,
+        parseMeminfo: parseMeminfo,
+        parseNetDev: parseNetDev,
+        parseDefaultIface: parseDefaultIface,
+        parseDiskstats: parseDiskstats,
+        parseHwmonMillidegrees: parseHwmonMillidegrees,
+        parseUevent: parseUevent,
+        parseFirstNumber: parseFirstNumber,
+        parseLoadavg: parseLoadavg,
+        parseDf: parseDf,
+        clampTarget: clampTarget,
+        parseUptimeSeconds: parseUptimeSeconds
+    };
+}
