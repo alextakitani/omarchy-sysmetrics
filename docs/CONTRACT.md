@@ -382,6 +382,15 @@ mount point kept as the name — on this machine that folds five rows into `/`.
 Anything under a gibibyte is dropped, which removes pseudo-filesystems like
 `/sys/firmware/efi/efivars` that otherwise appear with a real-looking 57%.
 
+The mount table is the one input here that a user controls directly: FUSE
+mounts can be created in a loop, with mount points of any length. Since this
+parse runs on a timer inside the shared shell, the table is bounded three
+times over rather than trusted — 64 KiB at the pipe (`head -c`, so the
+oversized output never becomes a QML string at all), 32 rows retained, and
+128 characters of mount point per row. Output that reaches the byte ceiling
+was truncated mid-row, and is discarded whole: a missing capacity reading is
+better than a torn row presented as a measurement.
+
 ## Uptime and the interval control
 
 The popup header carries `up 7h 45m` and a `refresh − + 2000 ms` stepper.

@@ -351,16 +351,31 @@ function parseLoadavg(text) {
 // Subvolumes and bind mounts report the same underlying filesystem, so rows
 // are collapsed by their size/used pair and the shortest mount point wins as
 // the representative name.
+// Ceilings on what a df run may cost us. The mount table is user-controllable
+// -- anyone can mount FUSE filesystems in a loop, with arbitrarily long mount
+// points -- and this parser runs on a timer inside the shared shell, so the
+// input is treated as hostile rather than as trusted coreutils output.
+//
+// DF_MAX_BYTES matches the `head -c` ceiling the reader applies to the pipe;
+// output at or above it was truncated, and a truncated table is discarded
+// whole rather than parsed to a torn final row.
+var DF_MAX_BYTES = 65536;
+var DF_MAX_ROWS = 32;
+var DF_MAX_TARGET = 128;
+
 function parseDf(text) {
-    var lines = String(text || "").split("\n");
+    var raw = String(text || "");
+    if (raw.length >= DF_MAX_BYTES) return [];   // truncated: fail closed
+
+    var lines = raw.split("\n");
     var seen = {};
     var out = [];
 
-    for (var i = 1; i < lines.length; i++) {
+    for (var i = 1; i < lines.length && out.length < DF_MAX_ROWS; i++) {
         var parts = lines[i].trim().split(/\s+/);
         if (parts.length < 4) continue;
 
-        var target = parts[0];
+        var target = clampTarget(parts[0]);
         var size = Number(parts[1]);
         var used = Number(parts[2]);
         var avail = Number(parts[3]);
@@ -390,6 +405,16 @@ function parseDf(text) {
     // Largest filesystem first: that is almost always the one being asked about.
     out.sort(function(a, b) { return b.sizeBytes - a.sizeBytes; });
     return out;
+}
+
+// A mount point is a path the user chose, so its length is not bounded by
+// anything the kernel enforces on our behalf. Keep the tail, which is the
+// part that identifies the mount, and mark the cut so the row does not read
+// as a real path.
+function clampTarget(target) {
+    var value = String(target);
+    if (value.length <= DF_MAX_TARGET) return value;
+    return "\u2026" + value.slice(value.length - DF_MAX_TARGET + 1);
 }
 
 // /proc/uptime holds seconds since boot as a float in its first field.

@@ -96,8 +96,17 @@ Item {
     id: dfProcess
     // -x excludes the pseudo-filesystems that would otherwise dominate the
     // list; the parser drops anything under a gibibyte as a second guard.
-    command: ["df", "-B1", "--output=target,size,used,avail",
-              "-x", "tmpfs", "-x", "devtmpfs", "-x", "squashfs", "-x", "overlay"]
+    //
+    // The mount table is not ours to trust: any user can mount FUSE
+    // filesystems in a loop, with mount points as long as they like, and this
+    // runs on a timer inside the shared shell. So the pipe itself is capped at
+    // 64 KiB by head rather than letting an unbounded df fill a QML string --
+    // the collector never sees more than the ceiling. Output that reaches the
+    // ceiling is treated as truncated and discarded whole by the parser; a
+    // capacity reading is worth less than a torn row parsed as fact.
+    command: ["sh", "-c",
+              "df -B1 --output=target,size,used,avail" +
+              " -x tmpfs -x devtmpfs -x squashfs -x overlay | head -c 65536"]
     stdout: StdioCollector {
       waitForEnd: true
       onStreamFinished: if (readers.ready) readers.sampler.applyDf(text)
