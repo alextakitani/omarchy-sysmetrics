@@ -19,7 +19,43 @@ QtObject {
 
   // Bumped on every committed sample. Canvas does not repaint on binding
   // changes, so views hang their requestPaint() off this.
+  //
+  // `revision` is the any-metric counter, kept for readings that genuinely
+  // depend on everything. Anything that belongs to ONE metric must use that
+  // metric's own counter below instead: with a single shared counter, a CPU
+  // sample invalidated the network gauge's bindings and repainted its canvas
+  // too, so N pinned metrics cost N repaints per sample each rather than one.
+  // Same in the popup, multiplied by every open section.
+  //
+  // These are read through revisionOf(id), which keeps the view code free of
+  // per-metric plumbing.
   property int revision: 0
+
+  property int cpuRevision: 0
+  property int memoryRevision: 0
+  property int networkRevision: 0
+  property int diskRevision: 0
+  property int gpuRevision: 0
+  property int vramRevision: 0
+  property int storageRevision: 0
+  property int cputempRevision: 0
+  property int gputempRevision: 0
+
+  // The repaint dependency for one metric. A view that draws a single metric
+  // states this rather than `revision`, so it is invalidated only by its own
+  // samples.
+  function revisionOf(id) {
+    if (id === "cpu") return cpuRevision
+    if (id === "memory") return memoryRevision
+    if (id === "network") return networkRevision
+    if (id === "disk") return diskRevision
+    if (id === "gpu") return gpuRevision
+    if (id === "vram") return vramRevision
+    if (id === "storage") return storageRevision
+    if (id === "cputemp") return cputempRevision
+    if (id === "gputemp") return gputempRevision
+    return revision
+  }
 
   signal updated(string metricId)
 
@@ -68,8 +104,8 @@ QtObject {
     cpuCores = cores
     previousCpuCores = parsed.cores
 
+    cpuRevision += 1
     revision += 1
-    lastSampleAt = Date.now()
     updated("cpu")
   }
 
@@ -93,6 +129,7 @@ QtObject {
       ? (parsed.swapUsedKB * 100 / parsed.swapTotalKB)
       : NaN
     Engine.ringPush(swapHistory, swapPercent)
+    memoryRevision += 1
     revision += 1
     updated("memory")
   }
@@ -128,6 +165,7 @@ QtObject {
       networkTx = NaN
       Engine.ringPush(networkRxHistory, NaN)
       Engine.ringPush(networkTxHistory, NaN)
+      networkRevision += 1
       revision += 1
       updated("network")
       return
@@ -144,6 +182,7 @@ QtObject {
 
     previousNetwork = current
     previousNetworkAt = now
+    networkRevision += 1
     revision += 1
     updated("network")
   }
@@ -200,6 +239,7 @@ QtObject {
 
     previousDisk = table
     previousDiskAt = now
+    diskRevision += 1
     revision += 1
     updated("disk")
   }
@@ -214,6 +254,7 @@ QtObject {
   function applyDf(text) {
     filesystems = Parsers.parseDf(text)
     Engine.ringPush(storageHistory, storagePercent)
+    storageRevision += 1
     revision += 1
     updated("storage")
   }
@@ -225,16 +266,6 @@ QtObject {
   function applyUptime(text) {
     uptimeSeconds = Parsers.parseUptimeSeconds(text)
     revision += 1
-  }
-
-  // Seconds since the last successful sample, so the popup can say how fresh
-  // its numbers are rather than leaving stale ones looking live.
-  property real lastSampleAt: 0
-  property int freshnessTick: 0
-  readonly property real secondsSinceSample: {
-    void freshnessTick
-    if (lastSampleAt <= 0) return NaN
-    return Math.max(0, (Date.now() - lastSampleAt) / 1000)
   }
 
   // ---- GPU ---------------------------------------------------------------
@@ -254,12 +285,14 @@ QtObject {
     var value = Parsers.parseFirstNumber(text)
     gpuUsage = value
     Engine.ringPush(gpuHistory, value)
+    gpuRevision += 1
     revision += 1
     updated("gpu")
   }
 
   function recordVram() {
     Engine.ringPush(vramHistory, vramPercent)
+    vramRevision += 1
     revision += 1
     updated("vram")
   }
@@ -280,6 +313,7 @@ QtObject {
     var celsius = Parsers.parseHwmonMillidegrees(text)
     temperature = celsius
     Engine.ringPush(temperatureHistory, celsius)
+    cputempRevision += 1
     revision += 1
     updated("cputemp")
   }
@@ -288,6 +322,7 @@ QtObject {
     var celsius = Parsers.parseHwmonMillidegrees(text)
     gpuTemperature = celsius
     Engine.ringPush(gpuTemperatureHistory, celsius)
+    gputempRevision += 1
     revision += 1
     updated("gputemp")
   }

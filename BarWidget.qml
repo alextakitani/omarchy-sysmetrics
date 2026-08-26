@@ -38,7 +38,7 @@ BarWidget {
   }
 
   function valueFor(id) {
-    void sampler.revision
+    void sampler.revisionOf(id)
     if (id === "memory") return Format.formatPercent(sampler.memory.percent)
     // Both directions, not their sum: the mirrored plot beside this label
     // separates them, and a single total would throw away exactly the
@@ -62,7 +62,7 @@ BarWidget {
   // Rates have no natural ceiling, so they scale against the tallest value in
   // the visible window, floored so an idle link does not amplify noise.
   function ceilingFor(id) {
-    void sampler.revision
+    void sampler.revisionOf(id)
     if (id === "network")
       return Engine.rollingCeiling([Engine.ringValues(sampler.networkRxHistory),
                                     Engine.ringValues(sampler.networkTxHistory)],
@@ -77,7 +77,7 @@ BarWidget {
   }
 
   function primarySeriesFor(id) {
-    void sampler.revision
+    void sampler.revisionOf(id)
     if (id === "memory") return Engine.ringValues(sampler.memoryHistory)
     if (id === "network") return Engine.ringValues(sampler.networkRxHistory)
     if (id === "disk") return Engine.ringValues(sampler.diskReadHistory)
@@ -90,7 +90,7 @@ BarWidget {
   }
 
   function secondarySeriesFor(id) {
-    void sampler.revision
+    void sampler.revisionOf(id)
     if (id === "network") return Engine.ringValues(sampler.networkTxHistory)
     if (id === "disk") return Engine.ringValues(sampler.diskWriteHistory)
     if (id === "memory") return Engine.ringValues(sampler.swapHistory)
@@ -153,7 +153,7 @@ BarWidget {
   }
 
   function isUrgent(id) {
-    void sampler.revision
+    void sampler.revisionOf(id)
     if (id === "cpu") return sampler.cpuUsage >= config.cpu.urgent
     if (id === "memory") return sampler.memory.percent >= config.memory.urgent
     if (id === "gpu") return sampler.gpuUsage >= config.gpu.urgent
@@ -383,7 +383,9 @@ BarWidget {
           // urgency signal, and it only means anything on a banded axis.
           showThreshold: gauge.modelData === "cputemp" || gauge.modelData === "gputemp"
           emphasizeLowLoad: root.config.emphasizeLowLoad
-          revision: sampler.revision
+          // This gauge's own samples, not every metric's: a shared counter
+          // repainted every canvas on the bar on each metric's sample.
+          revision: sampler.revisionOf(gauge.modelData)
         }
 
         Text {

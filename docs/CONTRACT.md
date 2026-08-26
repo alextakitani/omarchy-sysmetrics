@@ -311,6 +311,40 @@ property is a content list fails with "Cannot assign object of type
 QQmlConnections to list property", which silently makes the whole section
 unavailable and looks like a different bug entirely.
 
+## One counter per metric, not one for everything
+
+`revision` states the dependency that in-place ring mutation hides (previous
+section). But a *single* counter says "something changed", and every view
+reading it re-evaluates on every metric's sample — a CPU tick invalidated the
+network gauge's bindings and repainted its canvas, which does a full
+`ctx.reset()`, trough fill and 60-point sweep for data that did not move.
+
+The cost is multiplicative: N gauges on the bar, M metrics sampled per tick,
+N x M repaints where N would do. With the popup open and all nine sections
+live, one tick cost over a hundred invalidations instead of eleven.
+
+So each metric owns a counter, read through `sampler.revisionOf(id)`:
+
+```qml
+readonly property int revisionTick: sampler ? sampler.revisionOf("cpu") : 0
+```
+
+`revision` stays as the any-metric counter for anything that genuinely
+depends on everything. A view that draws one metric must not use it.
+
+Measured with two metrics pinned and the popup shut: 6 invalidations per tick
+became 2. Parsing, for scale, is 24us per tick for all six readers combined —
+the sampling side was never the expensive half, the repaint fan-out was.
+
+## Uptime is popup-only
+
+`/proc/uptime` was read every tick, all day, for a number drawn only in the
+popup header. `FileView` loads once when its path is set, so the boot read
+still populates the header correctly on first open; the per-tick `reload()`
+now happens only while the popup is actually up. Verified by counting
+reloads across a popup toggle: 8 ticks with the popup shut cost 1 read (the
+boot one), not 8.
+
 ## Sampling follows visibility, not just the pin
 
 Two separate questions, and they were conflated:
@@ -432,7 +466,10 @@ second poll it could practically never say anything but "just now", so it
 occupied a line without carrying information. Its one-second ticker went with
 it. The idea was to expose a silently stopped sampler; if that is ever wanted
 back, it should surface only *past* a staleness threshold rather than
-displaying an age that is almost always zero.
+displaying an age that is almost always zero. The backing properties
+(`lastSampleAt`, `freshnessTick`, `secondsSinceSample`) outlived the readout
+by mistake, costing a `Date.now()` per tick for a value with no consumer;
+they are gone now.
 
 The stepper is labelled because a bare `− + 2000 ms` does not say what it
 governs. It writes through the same `updateEntryInline` path as the metric

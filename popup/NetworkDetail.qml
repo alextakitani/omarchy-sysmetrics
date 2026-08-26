@@ -9,7 +9,7 @@ DetailSection {
 
   property QtObject sampler: null
   // Re-read the rings whenever a new sample lands.
-  readonly property int revisionTick: sampler ? sampler.revision : 0
+  readonly property int revisionTick: sampler ? sampler.revisionOf("network") : 0
 
   readonly property string interfaceName: sampler ? sampler.networkInterface : ""
   readonly property real rx: sampler ? sampler.networkRx : NaN
@@ -43,7 +43,7 @@ DetailSection {
       ? Engine.rollingCeiling([Engine.ringValues(root.sampler.networkRxHistory),
                                Engine.ringValues(root.sampler.networkTxHistory)], 65536)
       : 65536
-    revision: root.sampler ? root.sampler.revision : 0
+    revision: root.revisionTick
   }
 
   RowLayout {

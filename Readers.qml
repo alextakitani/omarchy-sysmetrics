@@ -49,22 +49,27 @@ Item {
       vramTotalFile.reload()
     }
     if (wantTemperature && temperatureInputPath !== "") temperatureFile.reload()
-    uptimeFile.reload()
 
     // Capacity is the one reading that needs a subprocess: it comes from
     // statvfs, which QML does not expose and procfs does not carry. df is
     // cheap (~2ms) but disk usage moves over minutes, so it runs on its own
     // slow cadence rather than on every tick.
-    if (wantStorage && storageTicks <= 0) {
-      if (!dfProcess.running) dfProcess.running = true
-      storageTicks = 15
+    if (wantStorage) {
+      if (storageTicks <= 0) {
+        if (!dfProcess.running) dfProcess.running = true
+        storageTicks = 15
+      }
+      storageTicks -= 1
     }
-    storageTicks -= 1
     if (wantGpuTemperature && gpuTemperatureInputPath !== "") gpuTemperatureFile.reload()
 
     // Popup-only detail: level readings with no history, so sampling them
     // lazily costs nothing and they are correct on the popup's first tick.
+    // Uptime belongs here too — it is drawn only in the popup header, so
+    // reading it every tick with the popup shut was a file read per interval,
+    // all day, for a number nobody was looking at.
     if (ready && sampler.popupOpen) {
+      uptimeFile.reload()
       if (wantCpu) loadavgFile.reload()
       if (wantGpu && !wantVram && sampler.gpuCard !== "") {
         vramUsedFile.reload()

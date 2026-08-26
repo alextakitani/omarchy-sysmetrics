@@ -9,7 +9,7 @@ DetailSection {
 
   property QtObject sampler: null
   // Re-read the rings whenever a new sample lands.
-  readonly property int revisionTick: sampler ? sampler.revision : 0
+  readonly property int revisionTick: sampler ? sampler.revisionOf("memory") : 0
 
   readonly property var mem: sampler ? sampler.memory : null
   readonly property real percent: mem ? mem.percent : NaN
@@ -37,7 +37,7 @@ DetailSection {
       return root.sampler ? Engine.ringValues(root.sampler.swapHistory) : []
     }
     secondaryStroke: Color.urgent
-    revision: root.sampler ? root.sampler.revision : 0
+    revision: root.revisionTick
   }
 
   MeterRow {

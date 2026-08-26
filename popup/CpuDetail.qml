@@ -9,7 +9,7 @@ DetailSection {
 
   property QtObject sampler: null
   // Re-read the rings whenever a new sample lands.
-  readonly property int revisionTick: sampler ? sampler.revision : 0
+  readonly property int revisionTick: sampler ? sampler.revisionOf("cpu") : 0
 
   // sampler is injected after this item is created, so every read guards
   // against it still being null.
@@ -26,7 +26,7 @@ DetailSection {
       void root.revisionTick        // in-place ring mutation is invisible to bindings
       return root.sampler ? Engine.ringValues(root.sampler.cpuHistory) : []
     }
-    revision: root.sampler ? root.sampler.revision : 0
+    revision: root.revisionTick
     stroke: !isNaN(root.cpuUsage) && root.cpuUsage >= 90 ? Color.urgent : Color.accent
   }
 

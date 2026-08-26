@@ -9,7 +9,7 @@ DetailSection {
 
   property QtObject sampler: null
   // Re-read the rings whenever a new sample lands.
-  readonly property int revisionTick: sampler ? sampler.revision : 0
+  readonly property int revisionTick: sampler ? sampler.revisionOf("gpu") : 0
 
   readonly property real gpuUsage: sampler ? sampler.gpuUsage : NaN
   readonly property string gpuCard: sampler ? sampler.gpuCard : ""
@@ -27,7 +27,7 @@ DetailSection {
       return root.sampler ? Engine.ringValues(root.sampler.gpuHistory) : []
     }
     mode: "columns"
-    revision: root.sampler ? root.sampler.revision : 0
+    revision: root.revisionTick
   }
 
   MeterRow {

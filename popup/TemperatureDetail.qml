@@ -9,7 +9,7 @@ DetailSection {
 
   property QtObject sampler: null
   // Re-read the rings whenever a new sample lands.
-  readonly property int revisionTick: sampler ? sampler.revision : 0
+  readonly property int revisionTick: sampler ? sampler.revisionOf("cputemp") : 0
 
   readonly property real temperature: sampler ? sampler.temperature : NaN
   readonly property string temperatureLabel: sampler ? sampler.temperatureLabel : ""
@@ -43,7 +43,7 @@ DetailSection {
     ceiling: 95
     urgentAt: 85
     showThreshold: true
-    revision: root.sampler ? root.sampler.revision : 0
+    revision: root.revisionTick
     stroke: !isNaN(root.temperature) && root.temperature >= 85 ? Color.urgent : Color.accent
   }
 

@@ -13,7 +13,7 @@ DetailSection {
 
   property QtObject sampler: null
   // Re-read the rings whenever a new sample lands.
-  readonly property int revisionTick: sampler ? sampler.revision : 0
+  readonly property int revisionTick: sampler ? sampler.revisionOf("vram") : 0
 
   readonly property real percent: sampler ? sampler.vramPercent : NaN
   readonly property real used: sampler ? sampler.gpuVramUsed : NaN
@@ -30,7 +30,7 @@ DetailSection {
       void root.revisionTick        // in-place ring mutation is invisible to bindings
       return root.sampler ? Engine.ringValues(root.sampler.vramHistory) : []
     }
-    revision: root.sampler ? root.sampler.revision : 0
+    revision: root.revisionTick
     stroke: !isNaN(root.percent) && root.percent >= 90 ? Color.urgent : Color.accent
   }
 

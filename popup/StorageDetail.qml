@@ -11,7 +11,7 @@ DetailSection {
   id: root
 
   property QtObject sampler: null
-  readonly property int revisionTick: sampler ? sampler.revision : 0
+  readonly property int revisionTick: sampler ? sampler.revisionOf("storage") : 0
 
   readonly property var filesystems: {
     void revisionTick

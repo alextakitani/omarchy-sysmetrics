@@ -9,7 +9,7 @@ DetailSection {
 
   property QtObject sampler: null
   // Re-read the rings whenever a new sample lands.
-  readonly property int revisionTick: sampler ? sampler.revision : 0
+  readonly property int revisionTick: sampler ? sampler.revisionOf("disk") : 0
 
   readonly property real diskRead: sampler ? sampler.diskRead : NaN
   readonly property real diskWrite: sampler ? sampler.diskWrite : NaN
@@ -58,7 +58,7 @@ DetailSection {
       ? Engine.rollingCeiling([Engine.ringValues(root.sampler.diskReadHistory),
                                Engine.ringValues(root.sampler.diskWriteHistory)], 1048576)
       : 1048576
-    revision: root.sampler ? root.sampler.revision : 0
+    revision: root.revisionTick
   }
 
   RowLayout {
