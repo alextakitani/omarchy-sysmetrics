@@ -440,7 +440,13 @@ them:
 | `df` (storage) | 64 KiB, at the pipe | 32 | 128 chars of mount point |
 | `/proc/net/dev` | 256 KiB | 128 interfaces | 64 chars |
 | `/proc/diskstats` | 256 KiB | 128 devices | 64 chars |
-| `/proc/stat` | 256 KiB | 1024 cores | — |
+| `/proc/stat` | 256 KiB | 1024 cores, dense | — |
+| `/proc/net/route` | 256 KiB | 512 routes | 64 chars |
+
+`/proc/net/route` is on this list for the same reason as the rest even though
+it is read on a slower cadence than the counters: a slower timer is still a
+timer, and the route table's row count is no more ours to choose than the
+interface list's.
 
 Two rules hold across all of them:
 

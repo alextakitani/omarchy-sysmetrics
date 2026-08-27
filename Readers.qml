@@ -162,7 +162,7 @@ Item {
     printErrors: false
     onLoaded: {
       if (!readers.ready) return
-      var resolved = readers.sampler.resolveInterface(text())
+      var resolved = readers.sampler.resolveInterface(readers.boundedText(this))
       if (resolved !== readers.sampler.networkInterface) {
         // Switching interfaces invalidates the byte baseline.
         readers.sampler.networkInterface = resolved

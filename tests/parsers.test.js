@@ -224,6 +224,33 @@ describe('parseDefaultIface', () => {
   it('returns null when there is no route table', () => {
     assert.equal(P.parseDefaultIface(''), null)
   })
+  // /proc/net/route is a recurring reader like the rest -- read on the
+  // sampling timer, with a row count decided outside this plugin (routes can
+  // be added in bulk). It was the one reader without ceilings.
+  it('fails closed on input at the byte ceiling', () => {
+    const row = 'eth0\t0A0A0A0A\t0\t0\t0\t0\t100\tFFFFFFFF\n'
+    let huge = 'Iface\tDestination\tGateway\tFlags\tRefCnt\tUse\tMetric\tMask\n'
+    while (huge.length < P.PROC_MAX_BYTES) huge += row
+    assert.equal(P.parseDefaultIface(huge), null)
+  })
+
+  it('stops scanning after the row cap', () => {
+    const rows = ['Iface\tDestination\tGateway\tFlags\tRefCnt\tUse\tMetric\tMask']
+    for (let i = 0; i < 5000; i++)
+      rows.push('eth' + i + '\t0A0A0A0A\t0\t0\t0\t0\t100\tFFFFFFFF')
+    // A default route past the cap is not reached; the cap is the point at
+    // which the input has stopped describing this machine.
+    rows.push('late\t00000000\t0\t0\t0\t0\t0\t00000000')
+    assert.equal(P.parseDefaultIface(rows.join('\n')), null)
+  })
+
+  it('rejects an interface name longer than a name can be', () => {
+    const long = 'A'.repeat(5000)
+    const text = ['Iface\tDestination\tGateway\tFlags\tRefCnt\tUse\tMetric\tMask',
+                  long + '\t00000000\t0\t0\t0\t0\t0\t00000000'].join('\n')
+    assert.equal(P.parseDefaultIface(text), null)
+  })
+
 })
 
 describe('parseDf', () => {

@@ -26,6 +26,7 @@ var NET_DEV_MAX_ROWS = 128;
 var DISKSTATS_MAX_ROWS = 128;
 var MAX_NAME = 64;          // interface and device names; IFNAMSIZ is 16
 var MAX_CORES = 1024;
+var ROUTE_MAX_ROWS = 512;   // routing tables are larger than interface lists
 
 // Parse /proc/stat into an aggregate "cpu" line plus per-core "cpuN" lines.
 //
@@ -231,6 +232,8 @@ function parseDefaultIface(routeText) {
         return null;
     }
 
+    if (routeText.length >= PROC_MAX_BYTES) return null;  // truncated: fail closed
+
     var lines = routeText.split("\n");
     if (lines.length < 2) return null;
 
@@ -247,9 +250,11 @@ function parseDefaultIface(routeText) {
     var bestIface = null;
     var bestMetric = NaN;
 
-    for (var i = 1; i < lines.length; i++) {
+    var rows = 0;
+    for (var i = 1; i < lines.length && rows < ROUTE_MAX_ROWS; i++) {
         var line = lines[i];
         if (line.length === 0) continue;
+        rows += 1;
         var parts = line.split(/\s+/);
         if (parts.length <= destIdx || parts.length <= maskIdx) continue;
 
@@ -262,7 +267,7 @@ function parseDefaultIface(routeText) {
         }
 
         var iface = parts.length > ifaceIdx ? parts[ifaceIdx] : null;
-        if (!iface) continue;
+        if (!iface || iface.length > MAX_NAME) continue;
 
         if (bestIface === null || metric < bestMetric) {
             bestIface = iface;
