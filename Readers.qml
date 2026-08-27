@@ -343,8 +343,10 @@ Item {
           blockLoading: true
 
           Component.onCompleted: {
-            var name = String(hwmonName.text() || "").trim()
-            if (name === "") return
+            // Bounded like the rest, and length-capped besides: this string
+            // is retained in hwmonNames and reaches the popup as a label.
+            var name = String(readers.boundedText(hwmonName) || "").trim()
+            if (name === "" || name.length > 64) return
             // Rebuilt as a fresh object: mutating the existing one and
             // assigning it back is the same reference, so QML sees no change
             // and onHwmonNamesChanged never fires.
