@@ -55,8 +55,21 @@ Item {
     // cheap (~2ms) but disk usage moves over minutes, so it runs on its own
     // slow cadence rather than on every tick.
     if (wantStorage) {
-      if (storageTicks <= 0) {
-        if (!dfProcess.running) dfProcess.running = true
+      // A hung df is the failure to design for here, not a slow one. statfs()
+      // blocks uninterruptibly on a wedged NFS or FUSE mount, and the
+      // overlap guard below would then turn one stuck child into permanent
+      // silence: running never goes false, so every later cadence is skipped
+      // and the reading stays frozen for the life of the session. So an
+      // overdue run is killed and the next cadence is allowed to try again.
+      if (dfProcess.running) {
+        dfWaited += 1
+        if (dfWaited > dfMaxWaits) {
+          dfProcess.running = false      // SIGTERM; collector yields nothing
+          dfWaited = 0
+        }
+      } else if (storageTicks <= 0) {
+        dfWaited = 0
+        dfProcess.running = true
         storageTicks = 15
       }
       storageTicks -= 1
@@ -80,6 +93,12 @@ Item {
 
   property int routeTicks: 0
   property int storageTicks: 0
+
+  // Ticks the current df run has been outstanding, and the ceiling past which
+  // it is presumed wedged. df on healthy mounts returns in ~2ms; this is
+  // three sampling ticks, so it only fires on a genuinely stuck statfs.
+  property int dfWaited: 0
+  readonly property int dfMaxWaits: 3
 
   // Bound a recurring FileView read BEFORE it becomes a QML string.
   //

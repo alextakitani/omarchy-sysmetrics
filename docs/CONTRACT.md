@@ -473,6 +473,21 @@ accepted only when it is the next one in sequence, making the list dense by
 construction. The kernel emits `cpu0..cpuN-1` densely, so real input parses
 identically; a gap ends the list rather than inflating it.
 
+### A hung subprocess must not become permanent silence
+
+`df` is the one subprocess, and it is guarded against overlap: a new run
+starts only when the previous one is not still running. That guard alone has
+a failure mode, though. `statfs()` blocks uninterruptibly on a wedged NFS or
+FUSE mount, so a stuck `df` never exits, `running` never goes false, and
+every later cadence is skipped — the capacity reading freezes for the life of
+the session with nothing to indicate it.
+
+So an outstanding run is counted in ticks and killed once it is overdue
+(three sampling ticks; a healthy `df` returns in about 2 ms). Terminating it
+makes the collector yield nothing, which `parseDf` already treats as no
+reading, and the next cadence starts a fresh run. Staleness is bounded rather
+than permanent.
+
 ### The byte ceiling is enforced before the read becomes a string
 
 A ceiling checked inside the parser is checked too late. `FileView.text()`
