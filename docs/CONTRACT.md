@@ -442,6 +442,7 @@ them:
 | `/proc/diskstats` | 256 KiB | 128 devices | 64 chars |
 | `/proc/stat` | 256 KiB | 1024 cores, dense | — |
 | `/proc/net/route` | 256 KiB | 512 routes | 64 chars |
+| `/proc/meminfo` | 256 KiB | 256 fields | — |
 
 `/proc/net/route` is on this list for the same reason as the rest even though
 it is read on a slower cadence than the counters: a slower timer is still a
@@ -499,10 +500,23 @@ cost that matters.
 So the byte ceiling is enforced at the read, by `Readers.boundedText()`,
 which measures `FileView.data().byteLength` — an `ArrayBuffer`, so the size
 is known without paying for the conversion — and returns `""` rather than
-calling `text()` when the file is at or past `PROC_MAX_BYTES`. Every
-recurring `FileView` reader goes through it. `df` is bounded a step earlier
-still, by `head -c` in the pipe, where the ceiling is the kernel's to enforce
-and the oversized bytes never enter the process at all.
+calling `text()` when the file is at or past `PROC_MAX_BYTES`.
+
+Every recurring `FileView` reader goes through it — including the ones the
+kernel already bounds to a page, such as the sysfs one-value reads,
+`/proc/uptime` and `/proc/loadavg`. Those do not need the gate on today's
+kernel. They go through it anyway so that *every reader is bounded* is a
+property of the file rather than a list someone has to remember to extend.
+The list is exactly what failed the last review: three readers were named,
+the enumeration looked complete, and `/proc/net/route` sat unbounded behind
+it. The unit suite now asserts the property over the source of `Readers.qml`
+itself — any `onLoaded` that calls `text()` without the gate fails the test
+and is named by line — so a reader added later is covered without anyone
+editing the check.
+
+`df` is bounded a step earlier still, by `head -c` in the pipe, where the
+ceiling is the kernel's to enforce and the oversized bytes never enter the
+process at all.
 
 The parser-side checks stay exactly where they are. They are the same rule
 enforced one layer in, for callers that reach a parser without coming through
@@ -512,8 +526,8 @@ caller. Two layers, one constant: `boundedText` gates on the
 
 `sh -c … | head -c` was considered for the procfs readers too, for symmetry
 with `df`, and rejected on measurement: a spawn costs ~0.9 ms against a
-~0.01 ms `FileView` read, and these three run *every* tick where `df` runs
-every fifteenth. That is ~2.7 ms of fork/exec per second on every machine
+~0.01 ms `FileView` read, and the counter readers run *every* tick where `df`
+runs every fifteenth. That is ~2.7 ms of fork/exec per second on every machine
 forever, to bound a flood that on the root netns needs `CAP_NET_ADMIN` to
 produce. The in-process gate costs one `byteLength` read and bounds the same
 thing.
