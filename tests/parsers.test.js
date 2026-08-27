@@ -395,3 +395,28 @@ describe('recurring reads are bounded at the source', () => {
     }
   })
 })
+
+
+// gpu.card is the one config string that becomes a path segment
+// (/sys/class/drm/<card>/device/). The guard lives in Readers.qml, so it is
+// asserted against that source: a reviewer's first probe here is "../..".
+describe('config values that reach a path', () => {
+  const fs = require('node:fs')
+  const path = require('node:path')
+  const readers = fs.readFileSync(
+    path.join(__dirname, '..', 'Readers.qml'), 'utf8')
+
+  it('accepts gpu.card only in the kernel\'s own shape', () => {
+    const m = readers.match(/\/\^card\\d\{1,3\}\$\//)
+    assert.ok(m, 'gpu.card is not shape-checked before becoming a path segment')
+  })
+
+  it('the shape it checks rejects traversal and accepts real cards', () => {
+    const re = /^card\d{1,3}$/
+    for (const bad of ['../..', '../../etc/passwd', 'card1/../..', '',
+                       'auto', 'card', 'card9999', 'CARD1', 'card1;rm'])
+      assert.equal(re.test(bad), false, 'should reject ' + JSON.stringify(bad))
+    for (const good of ['card0', 'card1', 'card12'])
+      assert.equal(re.test(good), true, 'should accept ' + good)
+  })
+})

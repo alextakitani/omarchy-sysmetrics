@@ -21,10 +21,10 @@ That number comes from what the widget does *not* do:
   directly through the shell's own file API. Shelling out to `awk`, `ps`, or
   `sensors` on a timer means forking an interpreter every tick, which costs
   milliseconds of real CPU — hundreds of times more than reading the same
-  file, and it recurs forever. The plugin spawns exactly one process, ever:
-  `df`, for filesystem capacity, which is the one reading `/proc` genuinely
-  cannot provide. It runs every fifteenth tick, and only while Storage is
-  actually being shown.
+  file, and it recurs forever. The one exception is filesystem capacity,
+  which comes from `statfs` and which `/proc` genuinely cannot provide: that
+  is a single `sh -c "df … | head -c 65536"` pipeline, run every fifteenth
+  tick and only while Storage is actually being shown. Nothing else forks.
 - **Nothing is sampled unless it is being looked at.** With the popup shut,
   only the metrics you pinned to the bar cost anything; the rest are idle. Open
   the popup and everything samples, because every section needs live data.
@@ -118,9 +118,9 @@ want to the widget's entry in `~/.config/omarchy/shell.json`:
 {
   "id": "takitani.sysmetrics",
   "metrics": ["cpu", "memory"],   // any subset, in any order
-  "intervalMs": 2000,             // 500–15000
+  "intervalMs": 2000,             // 500–60000 (the popup stepper goes to 15000)
   "historyLength": 60,            // samples kept per metric
-  "sparklineWidth": 26,           // px per gauge plot
+  "sparklineWidth": 34,           // px per gauge plot, 12–200
   "showValue": true,
   "showIcon": true,
   "cpu":         { "urgent": 90 },

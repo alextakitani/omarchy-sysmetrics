@@ -244,7 +244,11 @@ Item {
 
           Component.onCompleted: {
             if (!readers.ready || readers.sampler.gpuCard !== "") return
-            var fields = Parsers.parseUevent(gpuUevent.text())
+            if (readers.configuredGpuCard !== "") {
+              readers.sampler.gpuCard = readers.configuredGpuCard
+              return
+            }
+            var fields = Parsers.parseUevent(readers.boundedText(gpuUevent))
             var driver = fields.DRIVER ? String(fields.DRIVER) : ""
             if (readers.gpuDrivers.indexOf(driver) >= 0)
               readers.sampler.gpuCard = "card" + gpuSlot.index
@@ -255,6 +259,17 @@ Item {
   }
 
   readonly property var gpuDrivers: ["amdgpu", "i915", "xe", "nouveau", "nvidia", "radeon"]
+
+  // gpu.card lets a multi-GPU machine name the card instead of taking the
+  // first one whose driver is recognised. It becomes a path segment, so it
+  // is accepted only in exactly the shape the kernel uses -- "card" followed
+  // by digits. Anything else is ignored in favour of discovery rather than
+  // concatenated into /sys/class/drm/<...>/device/.
+  readonly property string configuredGpuCard: {
+    if (!ready) return ""
+    var configured = String(sampler.config.gpu.card)
+    return /^card\d{1,3}$/.test(configured) ? configured : ""
+  }
 
   readonly property string gpuDevicePath: sampler && sampler.gpuCard !== ""
     ? "/sys/class/drm/" + sampler.gpuCard + "/device/"
@@ -298,7 +313,12 @@ Item {
 
   readonly property var sensorPreference: {
     if (!ready) return ["k10temp"]
-    var configured = String(sampler.config.temperature.sensor)
+    // `cputemp` is the documented key and the one the rest of the metric
+    // already uses for range and urgent. `temperature` is the older name
+    // this read alone still accepted, so it stays as a fallback rather than
+    // silently dropping a config that used to work.
+    var configured = String(sampler.config.cputemp.sensor)
+    if (configured === "auto") configured = String(sampler.config.temperature.sensor)
     if (configured !== "auto") return [configured]
     // Package temperature first. The GPU and the drives are secondary
     // readings that the popup lists in their own right.
@@ -359,7 +379,12 @@ Item {
     if (!ready) return
     // amdgpu/nouveau expose the die reading as temp1_input, labelled "edge"
     // on amdgpu; nvidia's is surfaced the same way by its kernel driver.
-    var drivers = ["amdgpu", "nouveau", "nvidia"]
+    // A configured gputemp.sensor names the hwmon directly and wins, which
+    // is what the README documents; "auto" falls back to driver identity.
+    var configured = String(sampler.config.gputemp.sensor)
+    var drivers = configured !== "auto"
+      ? [configured]
+      : ["amdgpu", "nouveau", "nvidia"]
     for (var d = 0; d < drivers.length; d++) {
       for (var key in hwmonNames) {
         if (hwmonNames[key] === drivers[d]) {
