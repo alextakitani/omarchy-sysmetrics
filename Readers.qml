@@ -142,7 +142,7 @@ Item {
     path: "/proc/uptime"
     watchChanges: false
     printErrors: false
-    onLoaded: if (readers.ready) readers.sampler.applyUptime(text())
+    onLoaded: if (readers.ready) readers.sampler.applyUptime(readers.boundedText(this))
   }
 
   Process {
@@ -171,7 +171,7 @@ Item {
     path: "/proc/meminfo"
     watchChanges: false
     printErrors: false
-    onLoaded: if (readers.ready) readers.sampler.applyMeminfo(text())
+    onLoaded: if (readers.ready) readers.sampler.applyMeminfo(readers.boundedText(this))
   }
 
   FileView {
@@ -212,7 +212,7 @@ Item {
     path: "/proc/loadavg"
     watchChanges: false
     printErrors: false
-    onLoaded: if (readers.ready) readers.sampler.loadAverage = Parsers.parseLoadavg(text())
+    onLoaded: if (readers.ready) readers.sampler.loadAverage = Parsers.parseLoadavg(readers.boundedText(this))
   }
 
   // ---- Hardware discovery ------------------------------------------------
@@ -265,7 +265,7 @@ Item {
     path: readers.gpuDevicePath === "" ? "" : readers.gpuDevicePath + "gpu_busy_percent"
     watchChanges: false
     printErrors: false
-    onLoaded: if (readers.ready) readers.sampler.applyGpuBusy(text())
+    onLoaded: if (readers.ready) readers.sampler.applyGpuBusy(readers.boundedText(this))
   }
 
   FileView {
@@ -273,7 +273,7 @@ Item {
     path: readers.gpuDevicePath === "" ? "" : readers.gpuDevicePath + "mem_info_vram_used"
     watchChanges: false
     printErrors: false
-    onLoaded: if (readers.ready) readers.sampler.gpuVramUsed = Parsers.parseFirstNumber(text())
+    onLoaded: if (readers.ready) readers.sampler.gpuVramUsed = Parsers.parseFirstNumber(readers.boundedText(this))
   }
 
   FileView {
@@ -283,7 +283,7 @@ Item {
     printErrors: false
     onLoaded: {
       if (!readers.ready) return
-      readers.sampler.gpuVramTotal = Parsers.parseFirstNumber(text())
+      readers.sampler.gpuVramTotal = Parsers.parseFirstNumber(readers.boundedText(this))
       // Total arrives after used in the same tick, so this is the point at
       // which the pair is consistent enough to record.
       if (readers.wantVram) readers.sampler.recordVram()
@@ -380,7 +380,7 @@ Item {
     path: readers.temperatureInputPath
     watchChanges: false
     printErrors: false
-    onLoaded: if (readers.ready) readers.sampler.applyTemperature(text())
+    onLoaded: if (readers.ready) readers.sampler.applyTemperature(readers.boundedText(this))
   }
 
   FileView {
@@ -388,7 +388,7 @@ Item {
     path: readers.gpuTemperatureInputPath
     watchChanges: false
     printErrors: false
-    onLoaded: if (readers.ready) readers.sampler.applyGpuTemperature(text())
+    onLoaded: if (readers.ready) readers.sampler.applyGpuTemperature(readers.boundedText(this))
   }
 
 }

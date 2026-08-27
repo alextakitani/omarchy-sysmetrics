@@ -367,12 +367,31 @@ describe('recurring reads are bounded at the source', () => {
     assert.ok(readers.includes('head -c ' + P.DF_MAX_BYTES))
   })
 
-  for (const apply of ['applyProcStat', 'applyNetDev', 'applyDiskstats']) {
-    it(apply + ' reads through boundedText, not raw text()', () => {
-      assert.ok(!new RegExp(apply + '\\(text\\(\\)\\)').test(readers),
-                apply + ' still reads text() unbounded')
-      assert.ok(readers.includes(apply + '(readers.boundedText(this))'),
-                apply + ' does not go through boundedText')
-    })
-  }
+  // Enumerating the readers by name is what let /proc/net/route sit unbounded
+  // through a whole review: the list named three of them and looked complete.
+  // So this asserts the property over every onLoaded handler in the file
+  // instead -- a new reader added later is covered without editing the test,
+  // which is the only version of this check that stays true.
+  it('no recurring reader passes raw text() to its parser', () => {
+    const offenders = readers
+      .split('\n')
+      .map((line, i) => [i + 1, line])
+      .filter(([, line]) => /onLoaded/.test(line) || /^\s+readers\.sampler\./.test(line))
+      .filter(([, line]) => /[^d]text\(\)/.test(line))
+    assert.deepEqual(offenders, [],
+      'these reader lines call text() without the boundedText gate: ' +
+      JSON.stringify(offenders))
+  })
+
+  it('every FileView onLoaded routes through boundedText', () => {
+    const handlers = readers.split('\n').filter(l => /onLoaded:/.test(l))
+    assert.ok(handlers.length >= 8, 'expected to find the readers')
+    for (const h of handlers) {
+      // Handlers that only assign a path or delegate to a block are fine;
+      // the ones that read content must use the gate.
+      if (/text\(\)/.test(h)) {
+        assert.ok(/boundedText/.test(h), 'unbounded read: ' + h.trim())
+      }
+    }
+  })
 })

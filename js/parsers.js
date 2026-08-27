@@ -27,6 +27,7 @@ var DISKSTATS_MAX_ROWS = 128;
 var MAX_NAME = 64;          // interface and device names; IFNAMSIZ is 16
 var MAX_CORES = 1024;
 var ROUTE_MAX_ROWS = 512;   // routing tables are larger than interface lists
+var MEMINFO_MAX_ROWS = 256; // real /proc/meminfo is ~55 lines
 
 // Parse /proc/stat into an aggregate "cpu" line plus per-core "cpuN" lines.
 //
@@ -137,14 +138,21 @@ function parseMeminfo(text) {
     if (typeof text !== "string" || text.length === 0) {
         return result;
     }
+    if (text.length >= PROC_MAX_BYTES) return result;   // truncated: fail closed
 
+    // The dict takes one key per matching line, so the row cap is what bounds
+    // it. Real /proc/meminfo is ~55 lines; the handful of fields read below
+    // are all near the top, so a cap well above that changes nothing here and
+    // bounds the allocation if the file ever stops looking like itself.
     var values = {};
     var lines = text.split("\n");
-    for (var i = 0; i < lines.length; i++) {
+    var rows = 0;
+    for (var i = 0; i < lines.length && rows < MEMINFO_MAX_ROWS; i++) {
         var line = lines[i];
         var m = line.match(/^(\w+):\s*(\d+)/);
         if (m) {
             values[m[1]] = parseInt(m[2], 10);
+            rows += 1;
         }
     }
 
