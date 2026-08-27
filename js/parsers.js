@@ -92,9 +92,20 @@ function parseProcStat(text) {
             // every consumer that walks cores.length loop two billion times.
             // The kernel only ever emits a dense cpu0..cpuN-1, so anything
             // outside the ceiling is not a core we are missing.
+            //
+            // The ceiling alone bounds the worst case but does not make the
+            // array dense: a lone "cpu1023" line still yields length 1024
+            // with one entry defined, and every consumer pays for the gap --
+            // Sampler walks it per tick and the popup's core grid builds a
+            // delegate per slot. So the index is only accepted when it is
+            // the next one in sequence. Dense input (every real machine)
+            // parses identically; a gap ends the core list rather than
+            // inflating it, which is the same fail-closed rule the byte
+            // ceilings use.
             var coreIndex = parseInt(label.substring(3), 10);
-            if (!isNaN(coreIndex) && coreIndex >= 0 && coreIndex < MAX_CORES) {
-                result.cores[coreIndex] = entry;
+            if (!isNaN(coreIndex) && coreIndex === result.cores.length
+                && coreIndex < MAX_CORES) {
+                result.cores.push(entry);
             }
         }
     }

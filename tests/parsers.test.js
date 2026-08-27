@@ -68,6 +68,33 @@ describe('parseProcStat', () => {
     assert.equal(r.cores.length, 0)
   })
 
+  // The ceiling bounds the worst case but does not make the array dense. A
+  // lone in-range index still sized the array to itself, and every consumer
+  // pays for the gap: Sampler walks cores.length per tick and the popup's
+  // core grid instantiates a delegate per slot. 1023 empty slots per tick is
+  // the same amplification the ceiling exists to prevent, just under it.
+  it('does not size the array to a lone in-range core index', () => {
+    const r = P.parseProcStat('cpu  1 1 1 1 1 1 1 1\ncpu1023 1 1 1 1 1 1 1 1')
+    assert.equal(r.cores.length, 0)
+  })
+
+  it('stops at a gap rather than leaving holes in the list', () => {
+    const r = P.parseProcStat(['cpu  1 1 1 1 1 1 1 1',
+                               'cpu0 1 1 1 1 1 1 1 1',
+                               'cpu1 1 1 1 1 1 1 1 1',
+                               'cpu9 1 1 1 1 1 1 1 1'].join('\n'))
+    assert.equal(r.cores.length, 2)
+    assert.ok(r.cores.every(c => c && typeof c.total === 'number'))
+  })
+
+  it('parses a dense core list exactly as the kernel emits it', () => {
+    const lines = ['cpu  8 8 8 8 8 8 8 8']
+    for (let i = 0; i < 16; i++) lines.push('cpu' + i + ' 1 1 1 1 1 1 1 1')
+    const r = P.parseProcStat(lines.join('\n'))
+    assert.equal(r.cores.length, 16)
+    assert.ok(r.cores.every(c => c && typeof c.total === 'number'))
+  })
+
   it('fails closed on input at the byte ceiling', () => {
     const huge = 'cpu  1 1 1 1 1 1 1 1\n'.repeat(20000)
     assert.ok(huge.length >= 262144)

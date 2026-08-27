@@ -457,6 +457,16 @@ into a sparse array, so it sets the array's length. A single
 `cpu2000000000` line would make every consumer that walks `cores.length`
 loop two billion times per tick.
 
+A row cap alone does not settle that one, because the cost follows the
+*index*, not the row count. Capping the index at `MAX_CORES` bounds the worst
+case but leaves the array sparse: a lone `cpu1023` line still yields
+`cores.length === 1024` with one entry defined, and every consumer pays for
+the 1023 holes — `Sampler.applyProcStat` walks the length each tick, and the
+popup's core grid instantiates a delegate per slot. So a core index is
+accepted only when it is the next one in sequence, making the list dense by
+construction. The kernel emits `cpu0..cpuN-1` densely, so real input parses
+identically; a gap ends the list rather than inflating it.
+
 ### The byte ceiling is enforced before the read becomes a string
 
 A ceiling checked inside the parser is checked too late. `FileView.text()`
