@@ -81,12 +81,41 @@ Item {
   property int routeTicks: 0
   property int storageTicks: 0
 
+  // Bound a recurring FileView read BEFORE it becomes a QML string.
+  //
+  // The parsers carry byte ceilings of their own, but a post-read check is
+  // too late to matter: by the time parseNetDev() sees text(), FileView has
+  // already read the whole file and converted every byte of it to UTF-16.
+  // The allocation the ceiling exists to prevent has happened. Row counts in
+  // these files are decided outside this plugin -- interfaces come and go,
+  // block devices appear -- and every one of them is read on the sampling
+  // timer inside the shared shell, so the read is what needs the ceiling.
+  //
+  // data() hands back an ArrayBuffer, so byteLength is the on-disk size
+  // without paying for the string conversion. Over the ceiling, the file is
+  // dropped whole and the metric skips the tick: a missing reading is better
+  // than a torn one, and better than a multi-megabyte string per tick.
+  //
+  // The parser ceilings stay where they are. They are the same rule enforced
+  // one layer in, for callers that reach a parser without coming through
+  // here -- the tests do exactly that.
+  function boundedText(view) {
+    var buffer = view.data()
+    if (!buffer) return ""
+    if (buffer.byteLength >= Parsers.PROC_MAX_BYTES) return ""
+    return view.text()
+  }
+
+  // Exposed so the runtime suite can exercise boundedText against a real
+  // FileView rather than a stand-in.
+  readonly property alias statFileView: statFile
+
   FileView {
     id: statFile
     path: "/proc/stat"
     watchChanges: false
     printErrors: false
-    onLoaded: if (readers.ready) readers.sampler.applyProcStat(text())
+    onLoaded: if (readers.ready) readers.sampler.applyProcStat(readers.boundedText(this))
   }
 
   FileView {
@@ -148,7 +177,7 @@ Item {
     path: "/proc/net/dev"
     watchChanges: false
     printErrors: false
-    onLoaded: if (readers.ready) readers.sampler.applyNetDev(text())
+    onLoaded: if (readers.ready) readers.sampler.applyNetDev(readers.boundedText(this))
   }
 
   FileView {
@@ -156,7 +185,7 @@ Item {
     path: "/proc/diskstats"
     watchChanges: false
     printErrors: false
-    onLoaded: if (readers.ready) readers.sampler.applyDiskstats(text())
+    onLoaded: if (readers.ready) readers.sampler.applyDiskstats(readers.boundedText(this))
   }
 
   FileView {

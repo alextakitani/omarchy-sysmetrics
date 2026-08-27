@@ -15,7 +15,9 @@ const HOSTILE = [undefined, null, 0, 42, -1, NaN, true, false, {}, [], () => {},
                  '', '   ', '\n\n', ':::', 'garbage', '\0', '999999999999999999999']
 
 describe('parsers are total', () => {
-  for (const name of Object.keys(P)) {
+  // Functions only: the module also exports the ceiling constants, which the
+  // reader-side gate in Readers.qml reads.
+  for (const name of Object.keys(P).filter(k => typeof P[k] === 'function')) {
     it(name + ' never throws on hostile input', () => {
       for (const value of HOSTILE) {
         assert.doesNotThrow(() => P[name](value),
@@ -284,4 +286,39 @@ describe('small readers', () => {
   it('parseUptimeSeconds rejects a negative uptime', () => {
     assert.ok(Number.isNaN(P.parseUptimeSeconds('-1 0')))
   })
+})
+
+// The reader in Readers.qml gates on Parsers.PROC_MAX_BYTES before it calls
+// text(); each parser re-checks the same number after. Those are only one
+// rule if they are literally one constant, so this pins the export the
+// reader reads, and pins that the readers actually go through the gate --
+// the bound is the whole point of the fix and it is invisible to the other
+// two layers.
+describe('recurring reads are bounded at the source', () => {
+  const fs = require('node:fs')
+  const path = require('node:path')
+  const readers = fs.readFileSync(
+    path.join(__dirname, '..', 'Readers.qml'), 'utf8')
+
+  it('exports the procfs ceiling for the reader-side gate', () => {
+    assert.equal(typeof P.PROC_MAX_BYTES, 'number')
+    assert.equal(P.PROC_MAX_BYTES, 262144)
+  })
+
+  it('gates on the exported constant, not a copied literal', () => {
+    assert.match(readers, /buffer\.byteLength >= Parsers\.PROC_MAX_BYTES/)
+  })
+
+  it('caps the df pipe at the exported df ceiling', () => {
+    assert.ok(readers.includes('head -c ' + P.DF_MAX_BYTES))
+  })
+
+  for (const apply of ['applyProcStat', 'applyNetDev', 'applyDiskstats']) {
+    it(apply + ' reads through boundedText, not raw text()', () => {
+      assert.ok(!new RegExp(apply + '\\(text\\(\\)\\)').test(readers),
+                apply + ' still reads text() unbounded')
+      assert.ok(readers.includes(apply + '(readers.boundedText(this))'),
+                apply + ' does not go through boundedText')
+    })
+  }
 })

@@ -471,6 +471,10 @@ if (typeof module === "object" && typeof module.exports === "object") {
         parseLoadavg: parseLoadavg,
         parseDf: parseDf,
         clampTarget: clampTarget,
-        parseUptimeSeconds: parseUptimeSeconds
+        parseUptimeSeconds: parseUptimeSeconds,
+        // Ceilings, exported so the suite can assert that the reader-side
+        // bound in Readers.qml and the parser-side bound agree on one number.
+        PROC_MAX_BYTES: PROC_MAX_BYTES,
+        DF_MAX_BYTES: DF_MAX_BYTES
     };
 }

@@ -40,6 +40,13 @@ ln -s "$shell_root/Commons" "$tmp/Commons"
 ln -s "$plugin_dir" "$tmp/plugin"
 ln -s "$shell_qml" "$tmp/shell.qml"
 
+# An oversized stand-in for a flooded procfs file. The bounded-read checks
+# need a file past the 256 KiB ceiling; generating it here keeps a large
+# fixture out of the repository.
+oversized="$tmp/oversized"
+yes "eth0: 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16" 2>/dev/null | head -c 400000 >"$oversized"
+export SYSMETRICS_OVERSIZED_FIXTURE="$oversized"
+
 log="$tmp/quickshell.log"
 timeout 25 quickshell -p "$tmp/shell.qml" --no-color >"$log" 2>&1
 status=$?

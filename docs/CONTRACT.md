@@ -457,6 +457,36 @@ into a sparse array, so it sets the array's length. A single
 `cpu2000000000` line would make every consumer that walks `cores.length`
 loop two billion times per tick.
 
+### The byte ceiling is enforced before the read becomes a string
+
+A ceiling checked inside the parser is checked too late. `FileView.text()`
+has by then read the whole file and converted every byte of it to UTF-16, so
+the allocation the ceiling exists to prevent has already happened; the parser
+only declines to *retain* it. For a reader on the sampling timer that is the
+cost that matters.
+
+So the byte ceiling is enforced at the read, by `Readers.boundedText()`,
+which measures `FileView.data().byteLength` — an `ArrayBuffer`, so the size
+is known without paying for the conversion — and returns `""` rather than
+calling `text()` when the file is at or past `PROC_MAX_BYTES`. Every
+recurring `FileView` reader goes through it. `df` is bounded a step earlier
+still, by `head -c` in the pipe, where the ceiling is the kernel's to enforce
+and the oversized bytes never enter the process at all.
+
+The parser-side checks stay exactly where they are. They are the same rule
+enforced one layer in, for callers that reach a parser without coming through
+a reader — the unit suite does precisely that, and so would any future
+caller. Two layers, one constant: `boundedText` gates on the
+`Parsers.PROC_MAX_BYTES` the parsers themselves use, so the two cannot drift.
+
+`sh -c … | head -c` was considered for the procfs readers too, for symmetry
+with `df`, and rejected on measurement: a spawn costs ~0.9 ms against a
+~0.01 ms `FileView` read, and these three run *every* tick where `df` runs
+every fifteenth. That is ~2.7 ms of fork/exec per second on every machine
+forever, to bound a flood that on the root netns needs `CAP_NET_ADMIN` to
+produce. The in-process gate costs one `byteLength` read and bounds the same
+thing.
+
 ## Uptime and the interval control
 
 The popup header carries `up 7h 45m` and a `refresh − + 2000 ms` stepper.
