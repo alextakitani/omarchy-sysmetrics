@@ -14,10 +14,11 @@ DetailSection {
   // sampler is injected after this item is created, so every read guards
   // against it still being null.
   readonly property real cpuUsage: sampler ? sampler.cpuUsage : NaN
+  readonly property real cpuAggregate: sampler ? sampler.cpuAggregate : NaN
   readonly property var cpuCores: sampler ? sampler.cpuCores : []
   readonly property var loadAverage: sampler ? sampler.loadAverage : null
 
-  title: "Processor"
+  title: "Processor · busiest core"
   headline: Format.formatPercent(cpuUsage)
 
   DetailChart {
@@ -33,6 +34,30 @@ DetailSection {
   CoreGrid {
     Layout.fillWidth: true
     cores: root.cpuCores
+  }
+
+  // The headline is the busiest core, so the mean across all of them is
+  // shown here rather than lost -- they answer different questions and the
+  // gap between them is the interesting part on a many-core machine.
+  RowLayout {
+    Layout.fillWidth: true
+    spacing: Style.space(4)
+
+    Text {
+      text: "All cores"
+      color: Color.muted
+      font.family: Style.font.family
+      font.pixelSize: Style.font.caption
+    }
+
+    Text {
+      Layout.fillWidth: true
+      horizontalAlignment: Text.AlignRight
+      text: Format.formatPercent(root.cpuAggregate)
+      color: Color.popups.text
+      font.family: Style.font.family
+      font.pixelSize: Style.font.caption
+    }
   }
 
   RowLayout {

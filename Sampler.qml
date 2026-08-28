@@ -74,7 +74,19 @@ QtObject {
 
   // ---- CPU ---------------------------------------------------------------
 
+  // The busiest logical core, not the mean across all of them.
+  //
+  // The kernel's aggregate `cpu` line averages every core, which hides the
+  // load people actually want to see: on a 16-core machine one core pegged
+  // at 93% reads as 7% aggregate, so a compile or any single-threaded job
+  // barely moves the graph. The max is what answers "is something working
+  // hard right now", so it is what the strip plots and what `cpu.urgent`
+  // compares against.
+  //
+  // cpuAggregate keeps the mean, because "how loaded is the machine overall"
+  // is still the right question for the popup to answer alongside it.
   property real cpuUsage: NaN
+  property real cpuAggregate: NaN
   property var cpuCores: []           // current percent per logical core
   property var cpuHistory: Engine.makeRing(60)
   property var previousCpuAggregate: null
@@ -85,24 +97,36 @@ QtObject {
     var parsed = Parsers.parseProcStat(text)
     if (!parsed.aggregate) return
 
-    var usage = Engine.cpuBusyPercent(previousCpuAggregate, parsed.aggregate)
-    // A null derive means there is no measurable interval yet (first sample,
-    // or a counter reset). Pushing NaN keeps the plot honest instead of
-    // drawing a dip to zero that never happened.
-    Engine.ringPush(cpuHistory, usage === null ? NaN : usage)
-    cpuUsage = usage === null ? NaN : usage
+    var aggregate = Engine.cpuBusyPercent(previousCpuAggregate, parsed.aggregate)
+    cpuAggregate = aggregate === null ? NaN : aggregate
     previousCpuAggregate = parsed.aggregate
 
     // Per-core is parsed on every tick, popup open or not: it rides along in
     // the same read the aggregate already needs, and gating it would break
     // delta continuity so the grid would be blank each time the popup opens.
+    // It is also what the headline reading is derived from, so it is not
+    // popup-only detail any more.
     var cores = []
+    var busiest = NaN
     for (var i = 0; i < parsed.cores.length; i++) {
       var perCore = Engine.cpuBusyPercent(previousCpuCores[i], parsed.cores[i])
-      cores.push(perCore === null ? NaN : perCore)
+      var value = perCore === null ? NaN : perCore
+      cores.push(value)
+      if (!isNaN(value) && (isNaN(busiest) || value > busiest)) busiest = value
     }
     cpuCores = cores
     previousCpuCores = parsed.cores
+
+    // Fall back to the aggregate when there are no per-core lines to read
+    // (a first sample, a counter reset, or a kernel that gave us none), so
+    // the reading degrades to the old behaviour rather than to nothing.
+    var usage = isNaN(busiest) ? cpuAggregate : busiest
+
+    // A NaN here means there is no measurable interval yet (first sample, or
+    // a counter reset). Pushing NaN keeps the plot honest instead of drawing
+    // a dip to zero that never happened.
+    Engine.ringPush(cpuHistory, usage)
+    cpuUsage = usage
 
     cpuRevision += 1
     revision += 1

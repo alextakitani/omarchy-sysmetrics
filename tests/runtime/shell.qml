@@ -116,6 +116,12 @@ ShellRoot {
   function report() {
     // ---- the readings themselves ----------------------------------------
     check("cpu percent is a real number", !isNaN(sampler.cpuUsage))
+    // The headline reading is the busiest core, so it must be at least the
+    // mean -- a max below its own average would mean the two disagree.
+    check("cpu reading is the busiest core, not the mean",
+          isNaN(sampler.cpuAggregate) ||
+          sampler.cpuUsage >= sampler.cpuAggregate - 0.001)
+    check("the aggregate is still available", !isNaN(sampler.cpuAggregate))
     check("cpu percent is in range", sampler.cpuUsage >= 0 && sampler.cpuUsage <= 100)
     check("memory percent is a real number", !isNaN(sampler.memory.percent))
     check("memory total is nonzero", sampler.memory.totalKB > 0)

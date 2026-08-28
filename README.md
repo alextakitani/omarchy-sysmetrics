@@ -53,7 +53,7 @@ Nine metrics, each of which you choose to show on the bar or keep in the popup:
 
 | Metric | On the bar | In the popup |
 |---|---|---|
-| CPU | load history | per-core grid, load average |
+| CPU | busiest core | per-core grid, all-core average, load average |
 | CPU temperature | banded line | sensor reading with threshold |
 | Memory | used %, swap as a second line | used / available / cached / buffers / swap |
 | GPU | busy % | busy meter |
@@ -62,6 +62,12 @@ Nine metrics, each of which you choose to show on the bar or keep in the popup:
 | Storage | fullest filesystem | every filesystem, used of total |
 | Network | download and upload | per-direction rates, interface |
 | Disk I/O | read and write | per-device read and write rates |
+
+The CPU gauge plots the **busiest core**, not the average across all of them.
+The kernel's aggregate averages every core, which hides the load people
+usually want to see: on a 16-core machine one core pegged at 93% reads as 7%
+aggregate, so a compile barely moves the graph. `cpu.urgent` is compared
+against the same number. The all-core average is still shown, in the popup.
 
 Clicking the strip opens the detail view, which is also where you choose what
 the bar shows:
@@ -123,7 +129,7 @@ want to the widget's entry in `~/.config/omarchy/shell.json`:
   "sparklineWidth": 34,           // px per gauge plot, 12–200
   "showValue": true,
   "showIcon": true,
-  "cpu":         { "urgent": 90 },
+  "cpu":         { "urgent": 90 },   // compared against the busiest core
   "memory":      { "urgent": 90 },
   "gpu":         { "card": "auto", "urgent": 95 },
   "storage":     { "urgent": 90 },
