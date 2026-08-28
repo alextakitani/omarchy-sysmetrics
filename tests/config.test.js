@@ -127,3 +127,25 @@ describe('clamp', () => {
     assert.equal(C.clamp(99, 0, 10), 10)
   })
 })
+
+// Readers.qml drops a sampleAll() that arrives sooner than
+// minSampleIntervalMs, to keep an IPC client from driving the readers (and
+// now their subprocesses) faster than the timer would. That floor is only
+// safe while it stays below the fastest interval config will accept: if the
+// clamp floor ever drops, the throttle would start eating real ticks.
+describe('the sampling floor stays below the fastest allowed interval', () => {
+  const fs = require('node:fs')
+  const path = require('node:path')
+  const readers = fs.readFileSync(
+    path.join(__dirname, '..', 'Readers.qml'), 'utf8')
+
+  it('minSampleIntervalMs is below the configurable minimum', () => {
+    const m = /minSampleIntervalMs:\s*(\d+)/.exec(readers)
+    assert.ok(m, 'expected a minSampleIntervalMs in Readers.qml')
+    const floor = parseInt(m[1], 10)
+    const fastest = C.normalizeConfig({ intervalMs: 1 }).intervalMs
+    assert.ok(floor < fastest,
+      'sampling floor ' + floor + 'ms would throttle the fastest allowed ' +
+      'interval of ' + fastest + 'ms')
+  })
+})

@@ -171,3 +171,19 @@ describe('emphasize', () => {
     }
   })
 })
+
+// Infinity passes an isNaN test, so guards written with isNaN let it into the
+// history ring, where it makes the rolling ceiling infinite and every plotted
+// coordinate NaN. The parsers reject overflow too; this is the same rule one
+// layer in, for callers that reach the engine without going through a parser.
+describe('non-finite values are rejected by the engine guards', () => {
+  it('rateBetween rejects an infinite sample', () => {
+    assert.equal(E.rateBetween(0, Infinity, 1000), null)
+    assert.equal(E.rateBetween(Infinity, 1, 1000), null)
+    assert.equal(E.rateBetween(0, 1000, Infinity), null)
+  })
+
+  it('rateBetween still computes an ordinary rate', () => {
+    assert.equal(E.rateBetween(0, 1000, 1000), 1000)
+  })
+})

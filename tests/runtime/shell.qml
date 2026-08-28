@@ -51,6 +51,35 @@ ShellRoot {
   }
   readonly property alias oversizedView: oversized
 
+  // The fix under test: the same oversized fixture read through the producer
+  // ceiling instead of through FileView. This is the check the previous
+  // round of this fix did not have, and the reason it was wrong -- the
+  // failure is a memory spike at load, so the assertion has to be about
+  // memory, not about the returned string.
+  property string boundedResult: "pending"
+  property int rssBeforeMB: 0
+  property int rssAfterMB: 0
+
+  function rssMB() {
+    var v = Qt.createQmlObject(
+      'import Quickshell.Io; FileView { path: "/proc/self/status"; watchChanges: false; blockLoading: true }',
+      harness)
+    var t = v.text()
+    v.destroy()
+    var m = /VmRSS:\s+(\d+) kB/.exec(t)
+    return m ? Math.round(parseInt(m[1]) / 1024) : -1
+  }
+
+  Plugin.BoundedReader {
+    id: boundedOversized
+    path: Quickshell.env("SYSMETRICS_OVERSIZED_FIXTURE") || ""
+    maxBytes: 262144
+    onRead: text => {
+      harness.rssAfterMB = harness.rssMB()
+      harness.boundedResult = text
+    }
+  }
+
   // Snapshots taken while the popup is shut, compared after it opens.
   property int netRevWhileClosed: 0
   property int uptimeWhileClosed: 0
@@ -65,6 +94,12 @@ ShellRoot {
       readers.sampleAll()
       harness.ticks += 1
 
+      // Fire the producer-bounded read once, sampling RSS either side of it.
+      if (harness.ticks === 2) {
+        harness.rssBeforeMB = harness.rssMB()
+        boundedOversized.reload()
+      }
+
       // Four ticks with the popup shut, then four with it open.
       if (harness.ticks === 4) {
         harness.netRevWhileClosed = sampler.networkRevision
@@ -72,7 +107,7 @@ ShellRoot {
         sampler.popupOpen = true
       }
 
-      if (harness.ticks < 8) return
+      if (harness.ticks < 10) return
       running = false
       harness.report()
     }
@@ -124,19 +159,31 @@ ShellRoot {
     check("uptime is available from the boot read", sampler.uptimeSeconds > 0)
 
     // ---- recurring reads are bounded before they become strings ----------
-    // The parsers carry ceilings too, but those run after FileView has
-    // already allocated the string. boundedText is the gate that runs first,
-    // so it is the one worth asserting against a real FileView: a real
-    // procfs file must survive it intact, and an oversized one must be
-    // dropped whole rather than parsed.
-    var realStat = readers.boundedText(readers.statFileView)
-    check("bounded read passes a real /proc/stat through", realStat.length > 0)
+    // boundedText is the weak, kernel-bounded form of the ceiling: it runs
+    // after FileView has already allocated, so it is only sufficient for
+    // files the kernel caps at a page. Asserted here against a real FileView
+    // for the readers that still use it. The readers whose size is decided
+    // outside this plugin go through BoundedReader instead, checked below.
+    var realUptime = readers.boundedText(readers.uptimeFileView)
+    check("bounded read passes a real /proc/uptime through", realUptime.length > 0)
     check("bounded read agrees with the unbounded text",
-          realStat === readers.statFileView.text())
+          realUptime === readers.uptimeFileView.text())
     check("bounded read rejects a file at the ceiling",
           readers.boundedText(harness.oversizedView) === "")
     check("the oversized fixture really is over the ceiling",
           harness.oversizedView.data().byteLength >= 262144)
+
+    // ---- the producer ceiling, which is the actual fix -------------------
+    // FileView materialises the whole file before onLoaded fires, so the
+    // gate above cannot bound a file this plugin does not control the size
+    // of. BoundedReader stops the read at the ceiling instead. Both halves
+    // are asserted: the payload never arrives, and the memory is not spent.
+    check("producer-bounded read returned",
+          harness.boundedResult !== "pending")
+    check("producer-bounded read drops a file at the ceiling",
+          harness.boundedResult === "")
+    check("producer-bounded read did not materialise the file",
+          harness.rssAfterMB - harness.rssBeforeMB < 32)
 
     // ---- config normalisation reaches the sampler ------------------------
     check("interval is within the enforced range",

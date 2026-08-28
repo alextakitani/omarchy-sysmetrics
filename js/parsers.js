@@ -67,7 +67,7 @@ function parseProcStat(text) {
         var valid = true;
         for (var f = 0; f < 8; f++) {
             var n = parseInt(parts[f], 10);
-            if (isNaN(n)) { valid = false; break; }
+            if (!isFinite(n)) { valid = false; break; }
             fields.push(n);
         }
         if (!valid) continue;
@@ -151,7 +151,8 @@ function parseMeminfo(text) {
         var line = lines[i];
         var m = line.match(/^(\w+):\s*(\d+)/);
         if (m) {
-            values[m[1]] = parseInt(m[2], 10);
+            var mv = parseInt(m[2], 10);
+            if (isFinite(mv)) values[m[1]] = mv;
             rows += 1;
         }
     }
@@ -222,7 +223,7 @@ function parseNetDev(text) {
 
         var rxBytes = parseInt(parts[0], 10);
         var txBytes = parseInt(parts[8], 10);
-        if (isNaN(rxBytes) || isNaN(txBytes)) continue;
+        if (!isFinite(rxBytes) || !isFinite(txBytes)) continue;
 
         result[iface] = { rxBytes: rxBytes, txBytes: txBytes };
         rows += 1;
@@ -271,7 +272,7 @@ function parseDefaultIface(routeText) {
         var metric = 0;
         if (metricIdx !== -1 && parts.length > metricIdx) {
             var parsedMetric = parseInt(parts[metricIdx], 10);
-            if (!isNaN(parsedMetric)) metric = parsedMetric;
+            if (isFinite(parsedMetric)) metric = parsedMetric;
         }
 
         var iface = parts.length > ifaceIdx ? parts[ifaceIdx] : null;
@@ -317,7 +318,7 @@ function parseDiskstats(text) {
         var readSectors = parseInt(parts[3 + 2], 10);   // field 3
         var writeSectors = parseInt(parts[3 + 6], 10);  // field 7
 
-        if (isNaN(readSectors) || isNaN(writeSectors)) continue;
+        if (!isFinite(readSectors) || !isFinite(writeSectors)) continue;
 
         result[name] = { readSectors: readSectors, writeSectors: writeSectors };
         rows += 1;
@@ -367,7 +368,12 @@ function parseFirstNumber(text) {
     var m = text.match(/-?\d+(\.\d+)?/);
     if (!m) return NaN;
     var n = parseFloat(m[0]);
-    if (isNaN(n)) return NaN;
+    // !isFinite rather than isNaN: a long enough run of digits overflows to
+    // Infinity, which isNaN lets through. Every downstream guard in
+    // engine.js tests isNaN too, so an Infinity here would be carried into
+    // the ring buffers and reach the sparkline as a real sample, where it
+    // makes the rolling ceiling infinite and every plotted coordinate NaN.
+    if (!isFinite(n)) return NaN;
     return n;
 }
 
@@ -385,9 +391,9 @@ function parseLoadavg(text) {
     var five = parseFloat(parts[1]);
     var fifteen = parseFloat(parts[2]);
 
-    if (!isNaN(one)) result.one = one;
-    if (!isNaN(five)) result.five = five;
-    if (!isNaN(fifteen)) result.fifteen = fifteen;
+    if (isFinite(one)) result.one = one;
+    if (isFinite(five)) result.five = five;
+    if (isFinite(fifteen)) result.fifteen = fifteen;
 
     return result;
 }

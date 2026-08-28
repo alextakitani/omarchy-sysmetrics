@@ -369,28 +369,102 @@ describe('recurring reads are bounded at the source', () => {
 
   // Enumerating the readers by name is what let /proc/net/route sit unbounded
   // through a whole review: the list named three of them and looked complete.
-  // So this asserts the property over every onLoaded handler in the file
-  // instead -- a new reader added later is covered without editing the test,
-  // which is the only version of this check that stays true.
-  it('no recurring reader passes raw text() to its parser', () => {
-    const offenders = readers
-      .split('\n')
-      .map((line, i) => [i + 1, line])
-      .filter(([, line]) => /onLoaded/.test(line) || /^\s+readers\.sampler\./.test(line))
-      .filter(([, line]) => /[^d]text\(\)/.test(line))
+  // So the rule is asserted structurally instead -- a reader added later is
+  // covered without anyone editing this test.
+  //
+  // The rule itself changed once the FileView measurement came in. A gate
+  // inside onLoaded runs after FileView has already materialised the file,
+  // so for any file whose size is decided outside this plugin the only
+  // sufficient ceiling is at the producer. That is what this checks: those
+  // paths must not appear on a FileView at all.
+
+  // Files whose row count something outside this plugin controls: interfaces
+  // and veth pairs appear, loop and block devices appear, routes are added.
+  const UNBOUNDED_PATHS = [
+    '/proc/stat',
+    '/proc/net/dev',
+    '/proc/diskstats',
+    '/proc/net/route',
+    '/proc/meminfo',
+  ]
+
+  // Split the QML into element blocks so a path is attributed to the element
+  // that actually declares it. Brace-counting, not a regex for the closing
+  // brace -- the previous version over-ran into the following element and
+  // reported readers that were already converted.
+  function elementsOf(src) {
+    const out = []
+    const re = /\b(FileView|BoundedReader|Process)\s*\{/g
+    let m
+    while ((m = re.exec(src)) !== null) {
+      let depth = 0
+      let i = m.index + m[0].length - 1   // at the opening brace
+      let inStr = false, strCh = ''
+      for (; i < src.length; i++) {
+        const c = src[i]
+        if (inStr) {
+          if (c === '\\') { i++; continue }
+          if (c === strCh) inStr = false
+          continue
+        }
+        if (c === '"' || c === "'") { inStr = true; strCh = c; continue }
+        if (c === '{') depth++
+        else if (c === '}') { depth--; if (depth === 0) { i++; break } }
+      }
+      out.push({ type: m[1], body: src.slice(m.index, i) })
+    }
+    return out
+  }
+
+  const elements = elementsOf(readers)
+
+  it('finds the reader elements it means to check', () => {
+    assert.ok(elements.length >= 10, 'expected the readers, got ' + elements.length)
+    assert.ok(elements.some(e => e.type === 'BoundedReader'), 'expected BoundedReader use')
+  })
+
+  it('no externally-sized file is read through a FileView', () => {
+    const offenders = []
+    for (const el of elements) {
+      if (el.type !== 'FileView') continue
+      for (const p of UNBOUNDED_PATHS) {
+        if (el.body.includes('"' + p + '"')) offenders.push(p)
+      }
+    }
     assert.deepEqual(offenders, [],
-      'these reader lines call text() without the boundedText gate: ' +
+      'these files are sized outside this plugin and must be read through ' +
+      'BoundedReader, not FileView (a gate in onLoaded runs too late): ' +
       JSON.stringify(offenders))
   })
 
-  it('every FileView onLoaded routes through boundedText', () => {
-    const handlers = readers.split('\n').filter(l => /onLoaded:/.test(l))
-    assert.ok(handlers.length >= 8, 'expected to find the readers')
-    for (const h of handlers) {
-      // Handlers that only assign a path or delegate to a block are fine;
-      // the ones that read content must use the gate.
-      if (/text\(\)/.test(h)) {
-        assert.ok(/boundedText/.test(h), 'unbounded read: ' + h.trim())
+  it('every externally-sized file is read through a BoundedReader', () => {
+    for (const p of UNBOUNDED_PATHS) {
+      const el = elements.find(e =>
+        e.type === 'BoundedReader' && e.body.includes('"' + p + '"'))
+      assert.ok(el, p + ' is not read through a BoundedReader')
+      assert.match(el.body, /maxBytes:\s*Parsers\.PROC_MAX_BYTES/,
+        p + ' does not use the exported ceiling')
+    }
+  })
+
+  it('BoundedReader caps at the producer and fails closed', () => {
+    const fs2 = require('node:fs')
+    const src = fs2.readFileSync(
+      path.join(__dirname, '..', 'BoundedReader.qml'), 'utf8')
+    // The ceiling must reach the producer, not just be checked after.
+    assert.match(src, /command:\s*\["head",\s*"-c",\s*String\(root\.maxBytes\)/,
+      'BoundedReader must bound the read at the producer')
+    // Output at the ceiling is truncated and must be discarded whole.
+    assert.match(src, /text\.length >= root\.maxBytes.*\n.*read\(""\)|if \(text\.length >= root\.maxBytes\) root\.read\(""\)/,
+      'BoundedReader must fail closed on truncation')
+  })
+
+  it('readers still on FileView use the boundedText backstop', () => {
+    for (const el of elements) {
+      if (el.type !== 'FileView') continue
+      if (/text\(\)/.test(el.body) && !/boundedText/.test(el.body)) {
+        assert.fail('FileView reads content without the backstop: ' +
+          el.body.slice(0, 120))
       }
     }
   })
@@ -418,5 +492,49 @@ describe('config values that reach a path', () => {
       assert.equal(re.test(bad), false, 'should reject ' + JSON.stringify(bad))
     for (const good of ['card0', 'card1', 'card12'])
       assert.equal(re.test(good), true, 'should accept ' + good)
+  })
+})
+
+// A long enough run of digits overflows to Infinity, which every isNaN guard
+// in this codebase lets through. That is not a hypothetical: the sysfs
+// single-value readers (GPU busy%, VRAM, temperature) all go through
+// parseFirstNumber, and an Infinity there reaches the ring buffers, makes the
+// rolling ceiling infinite, and turns every plotted sparkline coordinate NaN.
+describe('numeric overflow is rejected, not just NaN', () => {
+  const overflow = '9'.repeat(400)
+
+  it('parseFirstNumber rejects a value that overflows to Infinity', () => {
+    assert.ok(Number.isNaN(P.parseFirstNumber(overflow)))
+  })
+
+  it('parseFirstNumber still reads ordinary sysfs values', () => {
+    assert.equal(P.parseFirstNumber('52000'), 52000)
+    assert.equal(P.parseFirstNumber('37'), 37)
+    assert.equal(P.parseFirstNumber('-5'), -5)
+  })
+
+  // Every guard in this file was written as isNaN, which Infinity passes.
+  // Each of these leaked an infinite reading before the fix.
+  it('every parser fails closed on an overflowing field', () => {
+    // A row whose counter overflows is dropped rather than recorded.
+    assert.equal(P.parseProcStat('cpu ' + [overflow,1,1,1,1,1,1,1].join(' ') + '\n')
+      .aggregate, null)
+    assert.ok(Number.isNaN(P.parseMeminfo('MemTotal: ' + overflow + ' kB\n').totalKB))
+    assert.deepEqual(
+      P.parseDiskstats(' 8 0 sda ' + Array(20).fill(overflow).join(' ') + '\n'), {})
+    assert.ok(Number.isNaN(
+      P.parseLoadavg(overflow + ' ' + overflow + ' ' + overflow + ' 1/2 3').one))
+    assert.deepEqual(
+      P.parseNetDev('h\nh\n eth0: ' + overflow + ' 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15\n'), {})
+    assert.ok(Number.isNaN(P.parseUptimeSeconds(overflow + ' 0')))
+  })
+
+  // The same files, unmodified, must still parse exactly as before.
+  it('real procfs input is unaffected by the finiteness checks', () => {
+    const fs2 = require('node:fs')
+    assert.ok(P.parseProcStat(fs2.readFileSync('/proc/stat', 'utf8')).cores.length > 0)
+    assert.ok(P.parseMeminfo(fs2.readFileSync('/proc/meminfo', 'utf8')).totalKB > 0)
+    assert.ok(Object.keys(
+      P.parseNetDev(fs2.readFileSync('/proc/net/dev', 'utf8'))).length > 0)
   })
 })

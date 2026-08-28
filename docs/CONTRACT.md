@@ -435,14 +435,38 @@ come and go, mount points are paths a user chose. Each reader therefore
 carries three ceilings, named as constants next to the parser that enforces
 them:
 
+**The byte ceiling has to be enforced by the producer, not by the reader.**
+This is the part an earlier version of this document got wrong. `FileView`
+completes its read in full and materialises the whole file in the shared
+shell before `onLoaded` fires, so a check written inside that handler — on
+`text()`, or on `data().byteLength` — runs *after* the allocation it exists
+to prevent, and returning `""` reclaims none of it. Measured on a real
+`quickshell` against an 80 MB file: RSS at the first line of `onLoaded` is
+already +225 MB. `FileView` exposes no size limit, so for any file whose
+size is decided outside this plugin the ceiling cannot live in QML at all.
+
+Those readers go through `BoundedReader.qml`, which reads via `head -c
+<maxBytes>`: the producer stops at the ceiling, so the shell never receives
+more than it. The same 80 MB file costs +2 MB through that path. The cost is
+a subprocess per read (~0.77 ms, against ~0.005 ms for a `FileView` read),
+which is why it is used only where it is needed — the files below. Readers
+whose size the kernel itself bounds to a page (`/proc/uptime`,
+`/proc/loadavg`, the sysfs one-value reads, the hwmon name probe) stay on
+`FileView`, where `boundedText()` remains as a backstop against a surprise
+rather than as the thing standing between the shell and a flood.
+
 | Reader | Bytes | Rows | Name |
 | --- | --- | --- | --- |
 | `df` (storage) | 64 KiB, at the pipe | 32 | 128 chars of mount point |
-| `/proc/net/dev` | 256 KiB | 128 interfaces | 64 chars |
-| `/proc/diskstats` | 256 KiB | 128 devices | 64 chars |
-| `/proc/stat` | 256 KiB | 1024 cores, dense | — |
-| `/proc/net/route` | 256 KiB | 512 routes | 64 chars |
-| `/proc/meminfo` | 256 KiB | 256 fields | — |
+| `/proc/net/dev` | 256 KiB, at the producer | 128 interfaces | 64 chars |
+| `/proc/diskstats` | 256 KiB, at the producer | 128 devices | 64 chars |
+| `/proc/stat` | 256 KiB, at the producer | 1024 cores, dense | — |
+| `/proc/net/route` | 256 KiB, at the producer | 512 routes | 64 chars |
+| `/proc/meminfo` | 256 KiB, at the producer | 256 fields | — |
+
+Every reader in this table reads through the producer ceiling. The row and
+name caps stay in the parsers, one layer in, for callers that reach a parser
+without coming through a reader — the tests do exactly that.
 
 `/proc/net/route` is on this list for the same reason as the rest even though
 it is read on a slower cadence than the counters: a slower timer is still a
@@ -473,6 +497,33 @@ popup's core grid instantiates a delegate per slot. So a core index is
 accepted only when it is the next one in sequence, making the list dense by
 construction. The kernel emits `cpu0..cpuN-1` densely, so real input parses
 identically; a gap ends the list rather than inflating it.
+
+### Overflow is not NaN
+
+Every numeric guard in this codebase was originally written as `isNaN`, which
+`Infinity` passes. A field of ~400 digits overflows `parseInt`/`parseFloat` to
+`Infinity`, so an oversized counter was accepted as a real reading: it entered
+the history ring, made `rollingCeiling` infinite, and turned every plotted
+sparkline coordinate into `NaN`. The parsers and the engine now test
+`isFinite`, so overflow fails closed to the same sentinel as malformed input.
+
+### Sampling has a floor
+
+`sampleAll()` is reachable from outside the timer — an IPC client can call
+`takitani.sysmetrics.refresh` in a loop, and a middle click is a second
+unthrottled path. Now that every recurring reader costs a subprocess, an
+unbounded call rate is fork/exec pressure on the shared shell. Calls arriving
+sooner than `minSampleIntervalMs` (250 ms, half the fastest interval config
+will accept) are dropped rather than queued: the next scheduled tick carries
+the same data. A test pins that floor below the configurable minimum, so the
+throttle can never start eating real ticks.
+
+### Config lists are bounded too
+
+`disk.devices` is the user's own file rather than hostile input, but it is
+copied into the sampler and walked on every tick, so its length is per-tick
+work forever. It is capped in both count and name length for the same reason
+the procfs readers are.
 
 ### A hung subprocess must not become permanent silence
 

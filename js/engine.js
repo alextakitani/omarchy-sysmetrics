@@ -79,7 +79,7 @@ function ringMax(ring) {
     var max = NaN;
     for (var i = 0; i < ring.values.length; i++) {
         var v = ring.values[i];
-        if (typeof v !== "number" || isNaN(v)) continue;
+        if (typeof v !== "number" || !isFinite(v)) continue;
         if (isNaN(max) || v > max) {
             max = v;
         }
@@ -130,9 +130,14 @@ function cpuBusyPercent(prev, curr) {
 // ever-growing JS number would eventually exceed 2^53 and silently lose
 // precision. Each call only ever looks at one delta at a time.
 function rateBetween(prevBytes, currBytes, dtMs) {
-    if (typeof prevBytes !== "number" || isNaN(prevBytes)) return null;
-    if (typeof currBytes !== "number" || isNaN(currBytes)) return null;
-    if (typeof dtMs !== "number" || isNaN(dtMs) || dtMs <= 0) return null;
+    // isFinite rather than !isNaN throughout: Infinity passes an isNaN test
+    // and would be stored in the history ring, where it makes the rolling
+    // ceiling infinite and every plotted point NaN. Overflow is rejected at
+    // the parser too; this is the same rule one layer in, for callers that
+    // reach the engine without going through one.
+    if (typeof prevBytes !== "number" || !isFinite(prevBytes)) return null;
+    if (typeof currBytes !== "number" || !isFinite(currBytes)) return null;
+    if (typeof dtMs !== "number" || !isFinite(dtMs) || dtMs <= 0) return null;
 
     var delta = currBytes - prevBytes;
     if (delta < 0) return null;
@@ -158,7 +163,7 @@ function rollingCeiling(arraysOfValues, floor) {
             if (!arr) continue;
             for (var j = 0; j < arr.length; j++) {
                 var v = arr[j];
-                if (typeof v !== "number" || isNaN(v)) continue;
+                if (typeof v !== "number" || !isFinite(v)) continue;
                 if (isNaN(max) || v > max) {
                     max = v;
                 }

@@ -1,5 +1,12 @@
 .pragma library
 
+// Ceilings for config-supplied lists. Config is the user's own file rather
+// than hostile input, but it is copied into the sampler and walked every
+// tick, so an accidental paste of a huge list is per-tick work forever.
+// Same rule as the procfs readers: bound what recurs.
+var MAX_DISK_DEVICES = 64;   // real machines have single digits
+var MAX_DEVICE_NAME = 64;    // matches MAX_NAME in parsers.js
+
 // Config normalization: takes whatever raw object Quickshell hands us
 // (from plugin settings, which may be partially filled, wrongly typed, or
 // entirely absent) and always returns a COMPLETE, well-typed config. Never
@@ -149,9 +156,16 @@ function normalizeDisk(raw) {
         if (typeof raw.devices === "string" && raw.devices.length > 0) {
             out.devices = raw.devices;
         } else if (raw.devices && typeof raw.devices.length === "number") {
+            // Capped in both count and name length for the same reason the
+            // procfs parsers are: this list is copied into the sampler and
+            // walked in full on every tick, so its size is per-tick work.
+            // A device name that cannot match a real one is dead weight in
+            // that loop, so oversized entries are dropped rather than kept.
             var devices = [];
-            for (var i = 0; i < raw.devices.length; i++) {
-                if (typeof raw.devices[i] === "string") {
+            for (var i = 0; i < raw.devices.length && devices.length < MAX_DISK_DEVICES; i++) {
+                if (typeof raw.devices[i] === "string" &&
+                    raw.devices[i].length > 0 &&
+                    raw.devices[i].length <= MAX_DEVICE_NAME) {
                     devices.push(raw.devices[i]);
                 }
             }

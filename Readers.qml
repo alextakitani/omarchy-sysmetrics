@@ -31,8 +31,23 @@ Item {
   readonly property bool wantTemperature: ready && sampler.sampling("cputemp")
   readonly property bool wantGpuTemperature: ready && sampler.sampling("gputemp")
 
+  // Sampling is rate limited because sampleAll() is reachable from outside
+  // the timer: an IPC client can call takitani.sysmetrics.refresh in a loop,
+  // and a middle click is a second unthrottled path. Every reader now costs a
+  // subprocess, so an unbounded call rate is fork/exec pressure on the shared
+  // shell rather than just redundant reads. Callers that arrive too early are
+  // dropped rather than queued -- the next scheduled tick has the same data.
+  // Half the fastest interval config will accept (clamped to >= 500ms in
+  // config.js), so this never throttles legitimate sampling -- only the
+  // external callers, which have no cadence of their own.
+  property double lastSampleAt: 0
+  readonly property int minSampleIntervalMs: 250
+
   function sampleAll() {
     if (!ready) return
+    var now = Date.now()
+    if (now - lastSampleAt < minSampleIntervalMs) return
+    lastSampleAt = now
     if (wantCpu) statFile.reload()
     if (wantMemory) meminfoFile.reload()
     if (wantNetwork) {
@@ -100,24 +115,22 @@ Item {
   property int dfWaited: 0
   readonly property int dfMaxWaits: 3
 
-  // Bound a recurring FileView read BEFORE it becomes a QML string.
+  // Bound a FileView read that the kernel already bounds for us.
   //
-  // The parsers carry byte ceilings of their own, but a post-read check is
-  // too late to matter: by the time parseNetDev() sees text(), FileView has
-  // already read the whole file and converted every byte of it to UTF-16.
-  // The allocation the ceiling exists to prevent has happened. Row counts in
-  // these files are decided outside this plugin -- interfaces come and go,
-  // block devices appear -- and every one of them is read on the sampling
-  // timer inside the shared shell, so the read is what needs the ceiling.
+  // This is the WEAK form of the ceiling and it is deliberately only used
+  // where it is sufficient. FileView completes its read in full before
+  // onLoaded fires, so a check written here -- on text(), or on
+  // data().byteLength -- runs after the allocation it is meant to prevent.
+  // Measured against an 80 MB file on a real quickshell: RSS at the first
+  // line of onLoaded is already +225 MB, and returning "" reclaims none of
+  // it. FileView exposes no size limit, so for a file whose size something
+  // outside this plugin decides, the ceiling cannot live here at all -- it
+  // has to move to the producer. Those readers use BoundedReader instead.
   //
-  // data() hands back an ArrayBuffer, so byteLength is the on-disk size
-  // without paying for the string conversion. Over the ceiling, the file is
-  // dropped whole and the metric skips the tick: a missing reading is better
-  // than a torn one, and better than a multi-megabyte string per tick.
-  //
-  // The parser ceilings stay where they are. They are the same rule enforced
-  // one layer in, for callers that reach a parser without coming through
-  // here -- the tests do exactly that.
+  // What remains here are the files the kernel itself bounds to a single
+  // page: the sysfs one-value reads, /proc/uptime, /proc/loadavg, and the
+  // hwmon name probe. For those this check is a backstop against a surprise,
+  // not the thing standing between the shell and a flood.
   function boundedText(view) {
     var buffer = view.data()
     if (!buffer) return ""
@@ -126,15 +139,21 @@ Item {
   }
 
   // Exposed so the runtime suite can exercise boundedText against a real
-  // FileView rather than a stand-in.
-  readonly property alias statFileView: statFile
+  // FileView rather than a stand-in. It is a kernel-bounded reader, which is
+  // the only kind still on FileView.
+  readonly property alias uptimeFileView: uptimeFile
 
-  FileView {
+  // /proc/stat, /proc/net/dev, /proc/diskstats, /proc/net/route and
+  // /proc/meminfo all read through BoundedReader rather than FileView: their
+  // row counts are decided outside this plugin (interfaces and veth pairs
+  // appear, block and loop devices appear, routes are added) and every one of
+  // them runs on the sampling timer inside the shared shell. FileView would
+  // materialise the whole file before we could reject it.
+  BoundedReader {
     id: statFile
     path: "/proc/stat"
-    watchChanges: false
-    printErrors: false
-    onLoaded: if (readers.ready) readers.sampler.applyProcStat(readers.boundedText(this))
+    maxBytes: Parsers.PROC_MAX_BYTES
+    onRead: text => { if (readers.ready) readers.sampler.applyProcStat(text) }
   }
 
   FileView {
@@ -166,22 +185,20 @@ Item {
     }
   }
 
-  FileView {
+  BoundedReader {
     id: meminfoFile
     path: "/proc/meminfo"
-    watchChanges: false
-    printErrors: false
-    onLoaded: if (readers.ready) readers.sampler.applyMeminfo(readers.boundedText(this))
+    maxBytes: Parsers.PROC_MAX_BYTES
+    onRead: text => { if (readers.ready) readers.sampler.applyMeminfo(text) }
   }
 
-  FileView {
+  BoundedReader {
     id: routeFile
     path: "/proc/net/route"
-    watchChanges: false
-    printErrors: false
-    onLoaded: {
+    maxBytes: Parsers.PROC_MAX_BYTES
+    onRead: text => {
       if (!readers.ready) return
-      var resolved = readers.sampler.resolveInterface(readers.boundedText(this))
+      var resolved = readers.sampler.resolveInterface(text)
       if (resolved !== readers.sampler.networkInterface) {
         // Switching interfaces invalidates the byte baseline.
         readers.sampler.networkInterface = resolved
@@ -191,20 +208,18 @@ Item {
     }
   }
 
-  FileView {
+  BoundedReader {
     id: netDevFile
     path: "/proc/net/dev"
-    watchChanges: false
-    printErrors: false
-    onLoaded: if (readers.ready) readers.sampler.applyNetDev(readers.boundedText(this))
+    maxBytes: Parsers.PROC_MAX_BYTES
+    onRead: text => { if (readers.ready) readers.sampler.applyNetDev(text) }
   }
 
-  FileView {
+  BoundedReader {
     id: diskstatsFile
     path: "/proc/diskstats"
-    watchChanges: false
-    printErrors: false
-    onLoaded: if (readers.ready) readers.sampler.applyDiskstats(readers.boundedText(this))
+    maxBytes: Parsers.PROC_MAX_BYTES
+    onRead: text => { if (readers.ready) readers.sampler.applyDiskstats(text) }
   }
 
   FileView {
