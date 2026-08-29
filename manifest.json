@@ -2,9 +2,10 @@
   "schemaVersion": 1,
   "id": "takitani.sysmetrics",
   "name": "System Metrics",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "author": "Alex Takitani",
-  "description": "Live CPU, memory, network, disk, GPU and temperature gauges with a detail popup",
+  "license": "MIT",
+  "description": "Every core, not the average: live CPU, memory, network, disk and GPU gauges that move when one core is pegged",
   "kinds": [
     "bar-widget"
   ],
