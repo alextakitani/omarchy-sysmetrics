@@ -303,6 +303,13 @@ BarWidget {
 
   readonly property real plotHeight: Math.max(9, Math.round(button.fontSize * 1.05))
 
+  // Every part of a gauge is individually switchable, so all three off leaves
+  // a gauge with nothing to draw. Treated the same as having no metrics at
+  // all: the strip stands down and the placeholder takes over.
+  readonly property bool gaugeHasContent: root.config.showIcon
+    || root.config.showSparkline
+    || root.config.showValue
+
   TextMetrics {
     id: spaceMetrics
     font.family: button.fontFamily
@@ -317,7 +324,7 @@ BarWidget {
   Text {
     id: placeholder
     anchors.centerIn: parent
-    visible: root.config.metrics.length === 0
+    visible: root.config.metrics.length === 0 || !root.gaugeHasContent
     text: "\uF4BC"
     color: Qt.rgba(Color.bar.text.r, Color.bar.text.g, Color.bar.text.b, 0.55)
     font.family: button.fontFamily
@@ -329,7 +336,7 @@ BarWidget {
     id: strip
     anchors.centerIn: parent
     spacing: 0
-    visible: root.config.metrics.length > 0 && !(root.bar && root.bar.vertical)
+    visible: root.config.metrics.length > 0 && root.gaugeHasContent && !(root.bar && root.bar.vertical)
 
     Repeater {
       model: root.config.metrics
@@ -369,6 +376,7 @@ BarWidget {
         }
 
         Sparkline {
+          visible: root.config.showSparkline
           width: root.config.sparklineWidth
           height: root.plotHeight
           primary: root.primarySeriesFor(gauge.modelData)

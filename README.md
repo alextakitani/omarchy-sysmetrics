@@ -127,6 +127,7 @@ want to the widget's entry in `~/.config/omarchy/shell.json`:
   "intervalMs": 2000,             // 500–60000 (the popup stepper goes to 15000)
   "historyLength": 60,            // samples kept per metric
   "sparklineWidth": 34,           // px per gauge plot, 12–200
+  "showSparkline": true,          // false: values and icons only, no plots
   "showValue": true,
   "showIcon": true,
   "cpu":         { "urgent": 90 },   // compared against the busiest core
@@ -144,6 +145,13 @@ want to the widget's entry in `~/.config/omarchy/shell.json`:
 their hwmon name, the network interface by the default route, and disks by
 excluding partitions and virtual devices. None of these are addressable by a
 fixed path — DRM card numbers and hwmon indices are not stable across reboots.
+
+`showIcon`, `showSparkline` and `showValue` are independent, so the strip can
+be reduced to whichever parts you want — `"showSparkline": false` leaves a row
+of plain readouts with no plots. Turning all three off leaves each gauge with
+nothing to draw, so the widget falls back to the same placeholder glyph it
+shows when no metric is pinned: still there, still clickable, still a way back
+to the popup. The popup keeps its charts either way.
 
 Unknown keys are ignored and malformed values fall back to their defaults, so a
 bad config degrades rather than breaking.

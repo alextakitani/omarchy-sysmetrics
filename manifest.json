@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "takitani.sysmetrics",
   "name": "System Metrics",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "author": "Alex Takitani",
   "license": "MIT",
   "description": "Every core, not the average: live CPU, memory, network, disk and GPU gauges that move when one core is pegged",
