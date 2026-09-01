@@ -21,14 +21,19 @@ That number comes from what the widget does *not* do:
   directly through the shell's own file API. Shelling out to `awk`, `ps`, or
   `sensors` on a timer means forking an interpreter every tick, which costs
   milliseconds of real CPU — hundreds of times more than reading the same
-  file, and it recurs forever. The one exception is filesystem capacity,
-  which comes from `statfs` and which `/proc` genuinely cannot provide: that
-  is a single `sh -c "df … | head -c 65536"` pipeline, run every fifteenth
-  tick and only while Storage is actually being shown. Nothing else forks.
+  file, and it recurs forever. Two readings genuinely cannot be had that way,
+  and both are fenced off. Filesystem capacity comes from `statfs`, which
+  `/proc` does not carry: a single `sh -c "df … | head -c 65536"` pipeline,
+  every fifteenth tick, only while Storage is being shown. The process lists
+  need one `/proc/<pid>/stat` per process, which the shell's file API cannot
+  glob: one `awk` sweep, and only while a list is actually expanded — a popup
+  merely being open pays nothing. Nothing else forks.
 - **Nothing is sampled unless it is being looked at.** With the popup shut,
   only the metrics you pinned to the bar cost anything; the rest are idle. Open
-  the popup and everything samples, because every section needs live data.
-  Close it and they stop.
+  the popup and the gauges all sample, because every section needs live data.
+  Close it and they stop. The two process lists are gated one step finer
+  still: they sample only while their own section is expanded, so a popup that
+  is merely open never pays for a sweep.
 - **Each gauge repaints on its own samples.** A CPU sample redraws the CPU
   gauge, not the network one. That sounds obvious, but the naive version — one
   "something changed" counter — makes N gauges repaint N times per tick, and a
@@ -68,6 +73,30 @@ The kernel's aggregate averages every core, which hides the load people
 usually want to see: on a 16-core machine one core pegged at 93% reads as 7%
 aggregate, so a compile barely moves the graph. `cpu.urgent` is compared
 against the same number. The all-core average is still shown, in the popup.
+
+### Which process is doing it
+
+The gauges say the machine is busy; two lists in the popup say what is making
+it busy. **Top processes · CPU** sits directly under the CPU charts, and
+**Top processes · memory** under the memory meters — each one breaking down
+the reading above it. Both are collapsed until you click their heading.
+
+They are the only sections that cannot be pinned to the bar (ten rows of
+process names do not belong on a strip), so their headings carry a disclosure
+caret instead of a pin dot. Each row is a process name, its pid, and the
+reading it is ranked by.
+
+The CPU column is what each process used *since the previous sweep*, not the
+lifetime average `ps` prints as `%CPU`. They answer different questions: a
+process that ran hot for an hour and has since gone idle tops the lifetime
+list forever, which is exactly the row nobody wants there. It is a percentage
+of one core, so a threaded process passes 100% — the same reading `top` gives.
+Expect a dash on the first tick after expanding: with only one sweep there is
+no interval to measure against, and inventing a number there would be a lie.
+
+The memory column is RSS, which double-counts pages shared between processes,
+so the rows do not sum to the machine's used memory; they answer which process
+is holding the most.
 
 Clicking the strip opens the detail view, which is also where you choose what
 the bar shows:

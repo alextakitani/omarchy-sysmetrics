@@ -30,6 +30,10 @@ Item {
   readonly property bool wantGpuDevice: wantGpu || wantVram || wantGpuTemperature
   readonly property bool wantTemperature: ready && sampler.sampling("cputemp")
   readonly property bool wantGpuTemperature: ready && sampler.sampling("gputemp")
+  // Not a `sampling()` metric: the process lists cannot be pinned to the bar,
+  // so they have no `metrics` entry to consult. They are gated on their own
+  // sections being expanded instead, which is stricter than popupOpen.
+  readonly property bool wantProcesses: ready && sampler.popupOpen && sampler.processesExpanded
 
   // Sampling is rate limited because sampleAll() is reachable from outside
   // the timer: an IPC client can call takitani.sysmetrics.refresh in a loop,
@@ -104,6 +108,28 @@ Item {
         vramTotalFile.reload()
       }
     }
+
+    // The dearest read here by some margin: a sweep of every /proc/<pid>/stat
+    // on the machine. It runs on the sampling tick rather than a slow cadence
+    // of its own, because its CPU column is a delta between consecutive
+    // sweeps -- stretching the gap would report an average over that whole
+    // gap instead of what is busy now. What keeps it cheap is that it only
+    // runs at all while a process list is actually expanded.
+    //
+    // Same wedge guard as df, for the same reason: a stuck child must not
+    // turn into permanent silence by leaving `running` true forever.
+    if (wantProcesses) {
+      if (processesProcess.running) {
+        processesWaited += 1
+        if (processesWaited > processesMaxWaits) {
+          processesProcess.running = false   // SIGTERM; collector yields nothing
+          processesWaited = 0
+        }
+      } else {
+        processesWaited = 0
+        processesProcess.running = true
+      }
+    }
   }
 
   property int routeTicks: 0
@@ -114,6 +140,12 @@ Item {
   // three sampling ticks, so it only fires on a genuinely stuck statfs.
   property int dfWaited: 0
   readonly property int dfMaxWaits: 3
+
+  // Same guard for the process sweep. It reads only procfs, which does not
+  // block the way a wedged NFS statfs does, but a fork that never returns
+  // would freeze the lists just as thoroughly.
+  property int processesWaited: 0
+  readonly property int processesMaxWaits: 3
 
   // Bound a FileView read that the kernel already bounds for us.
   //
@@ -182,6 +214,64 @@ Item {
     stdout: StdioCollector {
       waitForEnd: true
       onStreamFinished: if (readers.ready) readers.sampler.applyDf(text)
+    }
+  }
+
+  // The whole process table, reduced to one short row per process before it
+  // ever reaches the shell.
+  //
+  // There is no FileView path to this: /proc/<pid>/stat is one file per
+  // process, and QML cannot glob. Reading them individually would be hundreds
+  // of FileViews churning as pids come and go. So awk does the sweep, and --
+  // as with df -- the reduction happens in the producer rather than after the
+  // payload exists: each ~300-byte stat line becomes ~30 bytes, which is what
+  // keeps a 500-process machine at ~13 KB rather than 150 KB.
+  //
+  // Fields, from proc(5): 14 utime, 15 stime, 24 rss (in pages). They are
+  // indexed off the closing parenthesis rather than counted from the start of
+  // the line, because field 2 is `comm` -- an arbitrary 16-byte string that
+  // may itself contain spaces and parentheses, which would shift every
+  // positional index after it. Scanning for the LAST ")" is the documented way
+  // to find where the fixed-width fields resume.
+  //
+  // comm is then stripped of anything outside printable ASCII: it is a string
+  // the kernel accepted, not one we chose, and it ends up rendered as a label.
+  Process {
+    id: processesProcess
+    command: ["sh", "-c",
+              "getconf PAGESIZE; " +
+              "(awk 'FNR==1{" +
+              "line=$0; cp=0;" +
+              "for(i=length(line);i>0;i--){if(substr(line,i,1)==\")\"){cp=i;break}}" +
+              "if(cp==0)next;" +
+              "op=index(line,\"(\"); if(op<2)next;" +
+              "pid=substr(line,1,op-2);" +
+              "comm=substr(line,op+1,cp-op-1);" +
+              "rest=substr(line,cp+2);" +
+              "n=split(rest,f,\" \"); if(n<22)next;" +
+              "gsub(/[^ -~]/,\"?\",comm);" +
+              "print pid, (f[12]+f[13]), f[22], comm" +
+              // A pid that exits between the glob expanding and awk opening
+              // its file makes awk exit non-zero -- on a busy machine, most
+              // sweeps. The output is complete regardless (every other file
+              // was read and printed), so the status is discarded rather than
+              // allowed to look like a failed read to anything downstream.
+              "}' /proc/[0-9]*/stat 2>/dev/null || true) | head -c 262144"]
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        if (!readers.ready) return
+        // The page size rides in on the first line, so the sampler can turn
+        // pages into bytes without assuming 4 KiB.
+        var body = text
+        var newline = body.indexOf("\n")
+        if (newline > 0) {
+          var pageSize = Number(body.slice(0, newline))
+          if (isFinite(pageSize) && pageSize > 0) readers.sampler.processPageSize = pageSize
+          body = body.slice(newline + 1)
+        }
+        readers.sampler.applyProcesses(body)
+      }
     }
   }
 

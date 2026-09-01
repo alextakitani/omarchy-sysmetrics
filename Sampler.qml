@@ -17,6 +17,13 @@ QtObject {
   property var config: Config.normalizeConfig({})
   property bool popupOpen: false
 
+  // The process lists are collapsed by default and sample only while open,
+  // so the popup tells the sampler whether either one is expanded. This is
+  // the one reading gated on something finer than `popupOpen`: a full /proc
+  // sweep is far dearer than any other read here, and it is the only one
+  // whose section is hidden until asked for.
+  property bool processesExpanded: false
+
   // Bumped on every committed sample. Canvas does not repaint on binding
   // changes, so views hang their requestPaint() off this.
   //
@@ -40,6 +47,7 @@ QtObject {
   property int storageRevision: 0
   property int cputempRevision: 0
   property int gputempRevision: 0
+  property int processesRevision: 0
 
   // The repaint dependency for one metric. A view that draws a single metric
   // states this rather than `revision`, so it is invalidated only by its own
@@ -54,6 +62,7 @@ QtObject {
     if (id === "storage") return storageRevision
     if (id === "cputemp") return cputempRevision
     if (id === "gputemp") return gputempRevision
+    if (id === "processes") return processesRevision
     return revision
   }
 
@@ -350,6 +359,84 @@ QtObject {
     revision += 1
     updated("gputemp")
   }
+
+  // ---- Processes ---------------------------------------------------------
+  // Popup-only, and only while its sections are expanded: a full sweep of
+  // /proc is the most expensive read here, and nobody is looking at a list
+  // that is collapsed.
+
+  property var topCpuProcesses: []      // [{ pid, comm, cpuPercent, rssBytes }]
+  property var topMemoryProcesses: []
+  property var previousProcessTicks: ({})
+  property real previousProcessesAt: 0
+  // Page size is the producer's to report -- it comes back on the sweep's
+  // first line rather than being assumed here, because a QML client cannot
+  // call getpagesize().
+  property real processPageSize: 4096
+
+  // How many rows each list shows. Ten is what was asked for and what fits
+  // the popup without turning it into a scrolling process viewer.
+  readonly property int processListLength: 10
+
+  function applyProcesses(text) {
+    var rows = Parsers.parseProcessTable(text)
+    var now = Date.now()
+    var dt = previousProcessesAt > 0 ? now - previousProcessesAt : 0
+
+    // A sweep that came back empty is a failed or truncated read, not a
+    // machine with no processes. Keep the previous lists and the baseline
+    // rather than blanking a panel the user is looking at.
+    if (rows.length === 0) {
+      processesRevision += 1
+      revision += 1
+      updated("processes")
+      return
+    }
+
+    var withCpu = Parsers.processCpuPercents(previousProcessTicks, rows, dt)
+
+    // Sorted twice over the same rows: the two lists answer different
+    // questions and a process is routinely near the top of one and absent
+    // from the other.
+    topCpuProcesses = decorate(Parsers.topProcesses(withCpu, "cpuPercent", processListLength))
+    topMemoryProcesses = decorate(Parsers.topProcesses(withCpu, "rssPages", processListLength))
+
+    previousProcessTicks = Parsers.processTicksByPid(rows)
+    previousProcessesAt = now
+    processesRevision += 1
+    revision += 1
+    updated("processes")
+  }
+
+  // Pages become bytes here, at the one point that knows the page size.
+  function decorate(rows) {
+    var out = []
+    for (var i = 0; i < rows.length; i++) {
+      out.push({
+        pid: rows[i].pid,
+        comm: rows[i].comm,
+        cpuPercent: rows[i].cpuPercent,
+        rssBytes: rows[i].rssPages * processPageSize
+      })
+    }
+    return out
+  }
+
+  // The baseline is only valid across a continuous run of sweeps. When the
+  // lists are collapsed the sweeps stop, so the next one would compute its
+  // delta against ticks from minutes ago and read as a huge, wrong spike.
+  // Dropping the baseline costs one sweep with no CPU reading, which is the
+  // honest state to be in.
+  function resetProcessBaseline() {
+    previousProcessTicks = ({})
+    previousProcessesAt = 0
+  }
+
+  // Collapsing (or closing the popup) ends the run of sweeps, so the baseline
+  // goes with it. Re-expanding then starts a fresh run rather than differencing
+  // against a stale one.
+  onProcessesExpandedChanged: if (!processesExpanded) resetProcessBaseline()
+  onPopupOpenChanged: if (!popupOpen) resetProcessBaseline()
 
   // ---- Ring sizing -------------------------------------------------------
 

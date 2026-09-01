@@ -483,6 +483,172 @@ function parseUptimeSeconds(text) {
     return isFinite(value) && value >= 0 ? value : NaN;
 }
 
+// ---- Per-process table --------------------------------------------------
+
+// Ceilings on what one process sweep may cost us. The process table is the
+// least bounded input this plugin reads: any user can fork until they hit
+// their pid limit, and `comm` is 16 bytes the kernel accepted rather than a
+// string we chose. So the same rule as the procfs readers applies -- bound
+// the bytes, bound the rows, bound the names.
+//
+// PROCS_MAX_BYTES matches the `head -c` ceiling the reader applies to the
+// pipe; output at or above it was truncated, and a truncated table is
+// discarded whole rather than parsed to a torn final row.
+var PROCS_MAX_BYTES = 262144;
+var PROCS_MAX_ROWS = 2048;   // a pid_max of 4194304 is legal; this is not a table we walk twice
+var PROCS_MAX_COMM = 32;     // TASK_COMM_LEN is 16, so this is already slack
+
+// The kernel reports CPU time in clock ticks (USER_HZ), which is 100 on every
+// Linux target this runs on -- it is fixed at compile time and has been 100 on
+// x86_64 for the life of the architecture. Hardcoding it avoids a sysconf()
+// call QML cannot make; a wrong value here would scale every reading by a
+// constant, which the percentage clamp below would then cap rather than let
+// run away.
+var USER_HZ = 100;
+
+// One row per process, as emitted by the awk producer in Readers.qml:
+//
+//     <pid> <jiffies> <rssPages> <comm>
+//
+// comm comes last because it is the only field that may contain spaces; the
+// producer has already stripped the parentheses the kernel wraps it in and
+// replaced non-printables, so what arrives here is one token per field with
+// the remainder of the line being the name.
+function parseProcessTable(text) {
+    var raw = String(text || "");
+    if (raw.length >= PROCS_MAX_BYTES) return [];   // truncated: fail closed
+
+    var lines = raw.split("\n");
+    var out = [];
+
+    for (var i = 0; i < lines.length && out.length < PROCS_MAX_ROWS; i++) {
+        var line = lines[i];
+        if (!line) continue;
+
+        // Split off the first three fields by hand rather than with a regex
+        // split, so everything after them stays intact as the name.
+        var a = line.indexOf(" ");
+        if (a < 0) continue;
+        var b = line.indexOf(" ", a + 1);
+        if (b < 0) continue;
+        var c = line.indexOf(" ", b + 1);
+        if (c < 0) continue;
+
+        var pid = Number(line.slice(0, a));
+        var jiffies = Number(line.slice(a + 1, b));
+        var rssPages = Number(line.slice(b + 1, c));
+        var comm = line.slice(c + 1);
+
+        if (!isFinite(pid) || pid <= 0) continue;
+        if (!isFinite(jiffies) || jiffies < 0) continue;
+        if (!isFinite(rssPages) || rssPages < 0) continue;
+        if (comm.length > PROCS_MAX_COMM) comm = comm.slice(0, PROCS_MAX_COMM - 1) + "…";
+        if (comm === "") continue;
+
+        out.push({
+            pid: pid,
+            cpuTicks: jiffies,
+            // Pages, not bytes: the page size is the producer's to know. The
+            // sampler multiplies once it has it.
+            rssPages: rssPages,
+            comm: comm
+        });
+    }
+
+    return out;
+}
+
+// CPU percent per process, between two sweeps.
+//
+// This is the instantaneous reading -- what a process used since the previous
+// sweep -- rather than the lifetime average `ps` prints as %CPU. They answer
+// different questions, and the popup is asking which processes are busy NOW,
+// not which have accumulated the most CPU since boot. A process that ran hot
+// for an hour and has since gone idle tops the lifetime list forever, which
+// is exactly the row nobody wants to see there.
+//
+// `previous` is a pid -> cpuTicks map from the last sweep. A pid absent from
+// it is new (or the first sweep), and gets no reading rather than a fabricated
+// one: with no baseline there is no delta, and crediting it with its whole
+// lifetime of CPU would put every freshly spawned process at the top.
+//
+// Pids are reused, so a pid whose ticks went BACKWARDS is a different process
+// wearing the same number. Treated as new, for the same reason.
+function processCpuPercents(previous, current, elapsedMs) {
+    var out = [];
+    if (!current || typeof current.length !== "number") return out;
+
+    var baseline = previous && typeof previous === "object" ? previous : {};
+    var dt = Number(elapsedMs);
+    var haveInterval = isFinite(dt) && dt > 0;
+    // Ticks available to one process across the interval, on one core. A
+    // process pinning four cores reads as 400%, which is the reading `top`
+    // gives and the one people expect.
+    var ticksPerInterval = haveInterval ? (dt / 1000) * USER_HZ : 0;
+
+    for (var i = 0; i < current.length; i++) {
+        var row = current[i];
+        if (!row) continue;
+
+        var percent = NaN;
+        if (haveInterval && ticksPerInterval > 0) {
+            var before = baseline[row.pid];
+            if (typeof before === "number" && isFinite(before) && row.cpuTicks >= before) {
+                percent = (row.cpuTicks - before) * 100 / ticksPerInterval;
+                if (percent < 0) percent = 0;
+            }
+        }
+
+        out.push({
+            pid: row.pid,
+            comm: row.comm,
+            cpuPercent: percent,
+            rssPages: row.rssPages
+        });
+    }
+
+    return out;
+}
+
+// pid -> cpuTicks, to be held as the baseline for the next sweep.
+function processTicksByPid(rows) {
+    var out = {};
+    if (!rows || typeof rows.length !== "number") return out;
+    for (var i = 0; i < rows.length; i++) {
+        if (rows[i]) out[rows[i].pid] = rows[i].cpuTicks;
+    }
+    return out;
+}
+
+// The `count` heaviest rows by `key`, descending. Rows without a reading (NaN)
+// sort last: an unknown value is not a small one, but it is also not something
+// to lead the list with.
+function topProcesses(rows, key, count) {
+    if (!rows || typeof rows.length !== "number") return [];
+    var limit = isFinite(count) && count > 0 ? Math.floor(count) : 10;
+
+    var sorted = [];
+    for (var i = 0; i < rows.length; i++) {
+        if (rows[i]) sorted.push(rows[i]);
+    }
+
+    sorted.sort(function(a, b) {
+        var x = a[key];
+        var y = b[key];
+        var xBad = typeof x !== "number" || isNaN(x);
+        var yBad = typeof y !== "number" || isNaN(y);
+        if (xBad && yBad) return 0;
+        if (xBad) return 1;
+        if (yBad) return -1;
+        if (y !== x) return y - x;
+        // Stable-enough tiebreak, so equal rows do not shuffle between
+        // sweeps and make the list flicker.
+        return a.pid - b.pid;
+    });
+
+    return sorted.slice(0, limit);
+}
+
 // Exported for the test suite. QML has no `module`, so this block is inert
 // there and `.pragma library` still applies; Node reads it as an ordinary
 // CommonJS module, which is what lets every function above be tested without
@@ -502,9 +668,14 @@ if (typeof module === "object" && typeof module.exports === "object") {
         parseDf: parseDf,
         clampTarget: clampTarget,
         parseUptimeSeconds: parseUptimeSeconds,
+        parseProcessTable: parseProcessTable,
+        processCpuPercents: processCpuPercents,
+        processTicksByPid: processTicksByPid,
+        topProcesses: topProcesses,
         // Ceilings, exported so the suite can assert that the reader-side
         // bound in Readers.qml and the parser-side bound agree on one number.
         PROC_MAX_BYTES: PROC_MAX_BYTES,
-        DF_MAX_BYTES: DF_MAX_BYTES
+        DF_MAX_BYTES: DF_MAX_BYTES,
+        PROCS_MAX_BYTES: PROCS_MAX_BYTES
     };
 }

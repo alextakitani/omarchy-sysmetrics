@@ -84,6 +84,14 @@ ShellRoot {
   property int netRevWhileClosed: 0
   property int uptimeWhileClosed: 0
 
+  // The process sweep is gated more tightly than everything else -- on its
+  // sections being expanded, not merely on the popup being open -- because it
+  // is the dearest read here. Both halves of that gate are snapshotted: it
+  // must stay still through a popup that is merely open, and it must move
+  // once a list is actually expanded.
+  property int procRevWhilePopupOpen: 0
+  property real firstSweepCpu: -1
+
   Timer {
     interval: 250
     running: true
@@ -107,7 +115,18 @@ ShellRoot {
         sampler.popupOpen = true
       }
 
-      if (harness.ticks < 10) return
+      // Then the process lists are expanded, which is the only thing that
+      // may start the sweep. Two sweeps at least are needed before any CPU
+      // reading exists at all: the first only establishes the baseline.
+      if (harness.ticks === 8) {
+        harness.procRevWhilePopupOpen = sampler.processesRevision
+        sampler.processesExpanded = true
+      }
+
+      if (harness.ticks === 10 && sampler.topCpuProcesses.length > 0)
+        harness.firstSweepCpu = sampler.topCpuProcesses[0].cpuPercent
+
+      if (harness.ticks < 14) return
       running = false
       harness.report()
     }
@@ -190,6 +209,57 @@ ShellRoot {
           harness.boundedResult === "")
     check("producer-bounded read did not materialise the file",
           harness.rssAfterMB - harness.rssBeforeMB < 32)
+
+    // ---- the process sweep, and its gate ---------------------------------
+    // The gate is the whole reason this reading is affordable, so it is
+    // asserted before the reading itself. A popup that is merely open must
+    // not have paid for a single sweep.
+    check("process sweep stayed quiet while its lists were collapsed",
+          harness.procRevWhilePopupOpen === 0)
+    check("process sweep ran once its list was expanded",
+          sampler.processesRevision > 0)
+
+    check("top cpu list is populated", sampler.topCpuProcesses.length > 0)
+    check("top memory list is populated", sampler.topMemoryProcesses.length > 0)
+    check("lists are cut to ten rows",
+          sampler.topCpuProcesses.length <= 10 &&
+          sampler.topMemoryProcesses.length <= 10)
+
+    // pid 1 exists on every Linux system and always has a name, so a list of
+    // rows with blank names means the producer's comm field never survived.
+    check("process rows carry a name and a pid",
+          sampler.topCpuProcesses[0].comm.length > 0 &&
+          sampler.topCpuProcesses[0].pid > 0)
+
+    // The first sweep has no baseline, so every CPU reading on it is NaN --
+    // that is the honest state, and the list must not fabricate a number.
+    check("the first sweep reports no cpu reading",
+          harness.firstSweepCpu === -1 || isNaN(harness.firstSweepCpu))
+
+    // By now several sweeps have run, so a real reading must have appeared.
+    check("a later sweep produced a real cpu reading",
+          !isNaN(sampler.topCpuProcesses[0].cpuPercent))
+    check("cpu readings are not negative",
+          isNaN(sampler.topCpuProcesses[0].cpuPercent) ||
+          sampler.topCpuProcesses[0].cpuPercent >= 0)
+
+    // Memory ranking needs no baseline, so it is right on the first sweep.
+    check("memory list is ranked descending",
+          sampler.topMemoryProcesses.length < 2 ||
+          sampler.topMemoryProcesses[0].rssBytes >=
+            sampler.topMemoryProcesses[1].rssBytes)
+    check("memory rows are in bytes, not pages",
+          sampler.topMemoryProcesses[0].rssBytes > 0)
+
+    check("processes route to their own revision counter",
+          sampler.revisionOf("processes") === sampler.processesRevision)
+
+    // Collapsing must drop the baseline: the next sweep after a gap would
+    // otherwise difference against ticks from minutes ago and read as a huge
+    // spike that never happened.
+    sampler.processesExpanded = false
+    check("collapsing drops the cpu baseline",
+          sampler.previousProcessesAt === 0)
 
     // ---- config normalisation reaches the sampler ------------------------
     check("interval is within the enforced range",

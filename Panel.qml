@@ -19,6 +19,24 @@ Ui.Panel {
 
   readonly property var metrics: sampler ? sampler.config.metrics : []
 
+  // Either list being open is enough to want the sweep: both are served by
+  // the same read.
+  readonly property bool processesExpanded:
+    (topCpuSection && topCpuSection.expanded) ||
+    (topMemorySection && topMemorySection.expanded)
+
+  // Pushed rather than bound from the sampler's side, because the sections
+  // that own this state live inside this panel and the sampler is created
+  // outside it.
+  onProcessesExpandedChanged: if (sampler) sampler.processesExpanded = processesExpanded
+
+  // The panel is destroyed and rebuilt as the popup opens and closes, so the
+  // sampler's copy of this flag has to be re-stated on the way in as well --
+  // otherwise a section left expanded from a previous open would sample with
+  // the flag stuck false, or a collapsed one would keep sampling forever.
+  Component.onCompleted: if (sampler) sampler.processesExpanded = processesExpanded
+  Component.onDestruction: if (sampler) sampler.processesExpanded = false
+
   function hasMetric(id) {
     return metrics.indexOf(id) >= 0
   }
@@ -235,6 +253,20 @@ Ui.Panel {
             onPinToggled: root.togglePin("cpu")
           }
 
+          // Directly under the CPU charts it breaks down: the graph says the
+          // machine is busy, this says which process is doing it. Collapsed by
+          // default -- it is the only reading here that costs a sweep of every
+          // process on the machine, so it is not paid for until asked for.
+          //
+          // Unlike every section above, it cannot be pinned to the bar (ten
+          // rows of process names do not belong on a strip), so its header
+          // carries a disclosure caret where the others carry a pin dot.
+          Detail.TopCpuDetail {
+            id: topCpuSection
+            width: parent.width
+            sampler: root.sampler
+          }
+
           Detail.MemoryDetail {
             width: parent.width
             showSeparator: !root.isFirstVisible("memory")
@@ -242,6 +274,15 @@ Ui.Panel {
             metricId: "memory"
             pinned: root.hasMetric("memory")
             onPinToggled: root.togglePin("memory")
+          }
+
+          // Same idea as the CPU list above, under the meters it breaks down.
+          // Both lists are served by one sweep, so expanding either is what
+          // turns that reading on.
+          Detail.TopMemoryDetail {
+            id: topMemorySection
+            width: parent.width
+            sampler: root.sampler
           }
 
           Detail.GpuDetail {

@@ -538,3 +538,120 @@ describe('numeric overflow is rejected, not just NaN', () => {
       P.parseNetDev(fs2.readFileSync('/proc/net/dev', 'utf8'))).length > 0)
   })
 })
+
+// The process table is the least bounded thing this plugin reads, and its CPU
+// column is the only reading derived from two sweeps rather than one file. Both
+// of those are where the bugs live, so both are asserted directly.
+describe('process table', () => {
+  it('parses the producer\'s four fields', () => {
+    const rows = P.parseProcessTable('1 500 1000 systemd\n42 3 7 bash\n')
+    assert.deepEqual(rows, [
+      { pid: 1, cpuTicks: 500, rssPages: 1000, comm: 'systemd' },
+      { pid: 42, cpuTicks: 3, rssPages: 7, comm: 'bash' }
+    ])
+  })
+
+  // comm is 16 bytes chosen by whoever spawned the process, so it may contain
+  // spaces and parentheses. It is the LAST field for exactly this reason: the
+  // remainder of the line is the name, however it is punctuated.
+  it('keeps a comm containing spaces and parentheses intact', () => {
+    const rows = P.parseProcessTable('7 1 2 my weird (proc) name\n')
+    assert.equal(rows[0].comm, 'my weird (proc) name')
+    assert.equal(rows[0].pid, 7)
+    assert.equal(rows[0].rssPages, 2)
+  })
+
+  it('truncated output is discarded whole, not parsed to a torn row', () => {
+    const huge = 'x'.repeat(P.PROCS_MAX_BYTES)
+    assert.deepEqual(P.parseProcessTable(huge), [])
+  })
+
+  it('drops malformed rows rather than throwing', () => {
+    assert.deepEqual(P.parseProcessTable('nonsense\n1 2\n\n0 1 2 zero\n-3 1 2 neg\n'), [])
+  })
+
+  // 100 jiffies per second per core, so 200 jiffies across a 2s interval is
+  // one core fully busy.
+  it('computes CPU percent as a delta over the interval', () => {
+    const first = P.parseProcessTable('1 100 10 a\n')
+    const baseline = P.processTicksByPid(first)
+    const second = P.parseProcessTable('1 300 10 a\n')
+    const out = P.processCpuPercents(baseline, second, 2000)
+    assert.equal(out[0].cpuPercent, 100)
+  })
+
+  // A threaded process using four cores reads as 400%, as it does in top.
+  it('lets a threaded process exceed 100 percent', () => {
+    const out = P.processCpuPercents({ 1: 0 }, P.parseProcessTable('1 800 1 a\n'), 2000)
+    assert.equal(out[0].cpuPercent, 400)
+  })
+
+  // Crediting a process with its whole lifetime of CPU on the first sweep
+  // would put everything freshly spawned at the top of the list.
+  it('gives a process with no baseline no reading rather than its lifetime', () => {
+    const out = P.processCpuPercents({}, P.parseProcessTable('1 99999 10 a\n'), 2000)
+    assert.ok(Number.isNaN(out[0].cpuPercent))
+  })
+
+  // Pids are reused. Ticks running backwards means a different process is
+  // wearing the same number, so it has no baseline either.
+  it('treats a pid whose ticks went backwards as new', () => {
+    const out = P.processCpuPercents({ 1: 500 }, P.parseProcessTable('1 10 3 a\n'), 2000)
+    assert.ok(Number.isNaN(out[0].cpuPercent))
+  })
+
+  it('gives no reading when there is no interval to divide by', () => {
+    const out = P.processCpuPercents({ 1: 100 }, P.parseProcessTable('1 300 3 a\n'), 0)
+    assert.ok(Number.isNaN(out[0].cpuPercent))
+  })
+
+  it('ranks by the requested key and cuts to the requested length', () => {
+    const rows = [
+      { pid: 1, comm: 'a', cpuPercent: 5, rssPages: 100 },
+      { pid: 2, comm: 'b', cpuPercent: 50, rssPages: 10 },
+      { pid: 3, comm: 'c', cpuPercent: 20, rssPages: 900 }
+    ]
+    assert.deepEqual(P.topProcesses(rows, 'cpuPercent', 2).map(r => r.pid), [2, 3])
+    assert.deepEqual(P.topProcesses(rows, 'rssPages', 2).map(r => r.pid), [3, 1])
+  })
+
+  // An unknown reading is not a small one, but it must not lead the list
+  // either -- on the first sweep every CPU reading is NaN.
+  it('sorts rows without a reading last', () => {
+    const rows = [
+      { pid: 1, comm: 'a', cpuPercent: NaN, rssPages: 1 },
+      { pid: 2, comm: 'b', cpuPercent: 3, rssPages: 1 }
+    ]
+    assert.deepEqual(P.topProcesses(rows, 'cpuPercent', 5).map(r => r.pid), [2, 1])
+  })
+
+  // Equal rows shuffling between sweeps would make the list flicker.
+  it('breaks ties by pid so equal rows do not reorder between sweeps', () => {
+    const rows = [
+      { pid: 9, comm: 'a', cpuPercent: 0, rssPages: 1 },
+      { pid: 2, comm: 'b', cpuPercent: 0, rssPages: 1 }
+    ]
+    assert.deepEqual(P.topProcesses(rows, 'cpuPercent', 5).map(r => r.pid), [2, 9])
+  })
+
+  // The producer as Readers.qml runs it, against this machine's real /proc.
+  // A pid exiting between the glob and the open makes awk exit non-zero on
+  // most sweeps of a busy machine, while still printing every other row --
+  // hence the `|| true`, which is in the shipped command for the same reason.
+  it('reads the real process table', () => {
+    const { execFileSync } = require('node:child_process')
+    const sweep = execFileSync('sh', ['-c',
+      "(awk 'FNR==1{line=$0;cp=0;" +
+      'for(i=length(line);i>0;i--){if(substr(line,i,1)==")"){cp=i;break}}' +
+      'if(cp==0)next;op=index(line,"(");if(op<2)next;' +
+      'pid=substr(line,1,op-2);comm=substr(line,op+1,cp-op-1);' +
+      'rest=substr(line,cp+2);n=split(rest,f," ");if(n<22)next;' +
+      'gsub(/[^ -~]/,"?",comm);print pid, (f[12]+f[13]), f[22], comm' +
+      "}' /proc/[0-9]*/stat 2>/dev/null || true)"], { encoding: 'utf8' })
+    const rows = P.parseProcessTable(sweep)
+    assert.ok(rows.length > 0)
+    // pid 1 is always present and always named.
+    const init = rows.find(r => r.pid === 1)
+    assert.ok(init && init.comm.length > 0)
+  })
+})
