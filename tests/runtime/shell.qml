@@ -80,6 +80,25 @@ ShellRoot {
     }
   }
 
+  // ---- Layout gating -----------------------------------------------------
+  //
+  // Every part of a gauge is switchable, so all three off leaves a strip with
+  // nothing to draw and the placeholder glyph takes over. The bug this guards
+  // against is not visibility -- that part was right -- but the width: the
+  // widget kept reserving the (now empty) strip's width, so the glyph was
+  // centred in a 12px stub and the popup anchored to nothing. Only a real
+  // engine evaluates these bindings, which is why it belongs here.
+  Plugin.BarWidget {
+    id: emptyGauge
+    settings: ({ "metrics": ["cpu"], "showIcon": false,
+                 "showSparkline": false, "showValue": false })
+  }
+
+  Plugin.BarWidget {
+    id: fullGauge
+    settings: ({ "metrics": ["cpu"] })
+  }
+
   // Snapshots taken while the popup is shut, compared after it opens.
   property int netRevWhileClosed: 0
   property int uptimeWhileClosed: 0
@@ -195,6 +214,16 @@ ShellRoot {
     check("interval is within the enforced range",
           sampler.config.intervalMs >= 500 && sampler.config.intervalMs <= 60000)
     check("metrics list is an array", sampler.config.metrics.length !== undefined)
+
+    // ---- layout gating ---------------------------------------------------
+    check("a gauge with every part off falls back to the placeholder",
+          emptyGauge.showsPlaceholder)
+    check("a pinned metric with parts on does not",
+          !fullGauge.showsPlaceholder)
+    check("the placeholder gauge still reserves width",
+          emptyGauge.implicitWidth > 12)
+    check("the popup still has something to anchor to",
+          emptyGauge.openPanelIndicatorWidth > 0)
 
     for (var i = 0; i < notes.length; i++) console.warn("SYSMETRICS_CHECK " + notes[i])
 
