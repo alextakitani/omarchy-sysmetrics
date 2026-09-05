@@ -115,6 +115,21 @@ describe('booleans', () => {
     const fallback = C.normalizeConfig({}).showValue
     assert.equal(C.normalizeConfig({ showValue: 'yes' }).showValue, fallback)
   })
+
+  // The strip's three parts are independently switchable, so the sparkline
+  // toggle has to behave exactly like the two that came before it.
+  it('shows the sparkline unless it is explicitly turned off', () => {
+    assert.equal(C.normalizeConfig({}).showSparkline, true)
+    assert.equal(C.normalizeConfig({ showSparkline: false }).showSparkline, false)
+    assert.equal(C.normalizeConfig({ showSparkline: 'no' }).showSparkline, true)
+  })
+
+  // Turning the plot off must not disturb its width, which still has to be a
+  // usable number the moment the plot is turned back on.
+  it('keeps sparklineWidth normalized while the plot is hidden', () => {
+    const cfg = C.normalizeConfig({ showSparkline: false, sparklineWidth: 5 })
+    assert.equal(cfg.sparklineWidth, 12)
+  })
 })
 
 describe('clamp', () => {
