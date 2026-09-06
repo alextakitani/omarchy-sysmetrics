@@ -206,6 +206,10 @@ the failure modes found while building it.
 Omarchy with the Quickshell-based shell and bar widget plugin support.
 `df` (coreutils) for the Storage metric; everything else is `/proc` and `/sys`.
 
+## Changes
+
+[CHANGELOG.md](CHANGELOG.md) records what changed in each release.
+
 ## License
 
 MIT
