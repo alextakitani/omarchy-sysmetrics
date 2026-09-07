@@ -13,6 +13,8 @@ import QtQuick.Window
 import Quickshell
 import Quickshell.Io
 import "plugin" as Plugin
+import "plugin/js/config.js" as Config
+import "plugin/js/engine.js" as Engine
 
 ShellRoot {
   id: harness
@@ -125,6 +127,14 @@ ShellRoot {
       stroke: "#ff0000"
       onPaint: harness.shownPaints += 1
     }
+  }
+
+  // A sampler of its own, so driving config changes here cannot disturb the
+  // checks above. The rings are the thing at stake: they are the only state
+  // a config change can destroy, and they take real time to refill.
+  Plugin.Sampler {
+    id: configSampler
+    config: Config.normalizeConfig({ "metrics": ["cpu"], "historyLength": 30 })
   }
 
   // ---- Layout gating -----------------------------------------------------
@@ -374,6 +384,28 @@ ShellRoot {
     check("a hidden sparkline does not",
           harness.hiddenPaintsBaseline >= 0
             && harness.hiddenPaints === harness.hiddenPaintsBaseline)
+
+    // ---- config changes and the rings ------------------------------------
+    // Every write to `settings` yields a fresh config object, so a rebuild
+    // keyed on the object alone threw away history that had nothing to do
+    // with what changed.
+    Engine.ringPush(configSampler.cpuHistory, 42)
+    var filledBefore = configSampler.cpuHistory.filled
+    check("the test sampler recorded a sample", filledBefore > 0)
+
+    // A presentation-only change: the plots are hidden, the readings are not.
+    configSampler.config = Config.normalizeConfig(
+      { "metrics": ["cpu"], "historyLength": 30, "showSparkline": false })
+    check("a presentation-only change keeps the history",
+          configSampler.cpuHistory.filled === filledBefore)
+
+    // But a real size change must still rebuild, or the rings keep a length
+    // the config no longer asks for.
+    configSampler.config = Config.normalizeConfig(
+      { "metrics": ["cpu"], "historyLength": 45, "showSparkline": false })
+    check("a history-length change rebuilds the rings",
+          configSampler.cpuHistory.filled === 0
+            && configSampler.cpuHistory.values.length === 45)
 
     // ---- layout gating ---------------------------------------------------
     check("a gauge with every part off falls back to the placeholder",

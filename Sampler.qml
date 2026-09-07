@@ -440,8 +440,14 @@ QtObject {
 
   // ---- Ring sizing -------------------------------------------------------
 
+  // The size the live rings were built at. Rebuilding is what makes a config
+  // change cost the history, so it must happen only when the size is really
+  // what moved -- not when an unrelated key did.
+  property int ringSize: 60
+
   function rebuildRings() {
     var size = config.historyLength
+    ringSize = size
     cpuHistory = Engine.makeRing(size)
     memoryHistory = Engine.makeRing(size)
     swapHistory = Engine.makeRing(size)
@@ -456,5 +462,9 @@ QtObject {
     gpuTemperatureHistory = Engine.makeRing(size)
   }
 
-  onConfigChanged: rebuildRings()
+  // Guarded on the size, not on the config object. Every write to `settings`
+  // yields a fresh config, so an unguarded rebuild threw away every ring
+  // whenever any key moved -- toggling a sparkline off emptied the popup's
+  // charts, which have nothing to do with it.
+  onConfigChanged: if (config.historyLength !== ringSize) rebuildRings()
 }
