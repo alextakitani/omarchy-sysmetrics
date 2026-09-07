@@ -317,7 +317,12 @@ BarWidget {
 
   // The one predicate the placeholder, the strip and both width expressions
   // read, so visibility and the space reserved for it can never disagree.
-  readonly property bool showsPlaceholder: root.config.metrics.length === 0 || !root.gaugeHasContent
+  //
+  // Never on a vertical bar: there the Row does not lay out at all and the
+  // WidgetButton draws its own label, so a placeholder would be a second
+  // centred text on top of the live reading.
+  readonly property bool showsPlaceholder: !root.vertical
+    && (root.config.metrics.length === 0 || !root.gaugeHasContent)
 
   TextMetrics {
     id: spaceMetrics

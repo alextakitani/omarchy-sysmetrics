@@ -38,7 +38,11 @@ Canvas {
 
   renderStrategy: Canvas.Cooperative
 
-  onRevisionChanged: requestPaint()
+  // Guarded on visibility: a hidden Canvas still runs onPaint, so an
+  // invisible plot would keep doing the full drawing pass on every sample.
+  // Nothing is lost by skipping it — onVisibleChanged below repaints on the
+  // way back in.
+  onRevisionChanged: if (visible) requestPaint()
   onStrokeChanged: requestPaint()     // theme switch path
   onSecondaryStrokeChanged: requestPaint()
   onCeilingChanged: requestPaint()

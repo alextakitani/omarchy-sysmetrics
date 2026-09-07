@@ -151,7 +151,8 @@ be reduced to whichever parts you want — `"showSparkline": false` leaves a row
 of plain readouts with no plots. Turning all three off leaves each gauge with
 nothing to draw, so the widget falls back to the same placeholder glyph it
 shows when no metric is pinned: still there, still clickable, still a way back
-to the popup. The popup keeps its charts either way.
+to the popup. A vertical bar has no strip to lay out in the first place, so it
+keeps showing its single-value label. The popup keeps its charts either way.
 
 Unknown keys are ignored and malformed values fall back to their defaults, so a
 bad config degrades rather than breaking.

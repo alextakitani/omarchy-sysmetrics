@@ -9,6 +9,7 @@
 // produced rather than merely instantiating the objects.
 
 import QtQuick
+import QtQuick.Window
 import Quickshell
 import Quickshell.Io
 import "plugin" as Plugin
@@ -80,6 +81,47 @@ ShellRoot {
     }
   }
 
+  // ---- Hidden plots stay quiet -------------------------------------------
+  //
+  // A hidden Canvas still runs onPaint: Qt does not skip the paint pass for
+  // an invisible item, so a plot switched off by `showSparkline` would keep
+  // doing the whole drawing pass on every sample while its metric stays
+  // pinned. The counters only move once something renders, which is why
+  // these live inside a window and why the harness runs offscreen.
+  property int hiddenPaints: 0
+  property int shownPaints: 0
+  // Both plots paint once when they are first laid out; only the growth
+  // afterwards says whether new samples are reaching a plot nobody sees.
+  property int hiddenPaintsBaseline: -1
+  property int shownPaintsBaseline: -1
+
+  Window {
+    id: stage
+    width: 120
+    height: 40
+    visible: true
+
+    Plugin.Sparkline {
+      id: hiddenPlot
+      visible: false
+      width: 40
+      height: 12
+      primary: [1, 2, 3]
+      onPaint: harness.hiddenPaints += 1
+    }
+
+    // The control: same plot, visible, so a zero on the hidden counter means
+    // the guard held rather than that nothing painted at all.
+    Plugin.Sparkline {
+      id: shownPlot
+      visible: true
+      width: 40
+      height: 12
+      primary: [1, 2, 3]
+      onPaint: harness.shownPaints += 1
+    }
+  }
+
   // ---- Layout gating -----------------------------------------------------
   //
   // Every part of a gauge is switchable, so all three off leaves a strip with
@@ -97,6 +139,22 @@ ShellRoot {
   Plugin.BarWidget {
     id: fullGauge
     settings: ({ "metrics": ["cpu"] })
+  }
+
+  // A vertical bar is the other layout: the Row never lays out there and the
+  // WidgetButton draws its own label, so the placeholder must stand down or
+  // it draws a second centred text on top of the live reading.
+  QtObject {
+    id: verticalBar
+    property bool vertical: true
+    property int barSize: 40
+  }
+
+  Plugin.BarWidget {
+    id: verticalGauge
+    bar: verticalBar
+    settings: ({ "metrics": ["cpu"], "showIcon": false,
+                 "showSparkline": false, "showValue": false })
   }
 
   // Snapshots taken while the popup is shut, compared after it opens.
@@ -125,6 +183,16 @@ ShellRoot {
         harness.uptimeWhileClosed = sampler.uptimeSeconds
         sampler.popupOpen = true
       }
+
+      // Bumped every tick: what a pinned metric's revision counter does to
+      // a plot the user has switched off. Baselined after the first-layout
+      // paints have landed.
+      if (harness.ticks === 3) {
+        harness.hiddenPaintsBaseline = harness.hiddenPaints
+        harness.shownPaintsBaseline = harness.shownPaints
+      }
+      hiddenPlot.revision += 1
+      shownPlot.revision += 1
 
       if (harness.ticks < 10) return
       running = false
@@ -215,6 +283,14 @@ ShellRoot {
           sampler.config.intervalMs >= 500 && sampler.config.intervalMs <= 60000)
     check("metrics list is an array", sampler.config.metrics.length !== undefined)
 
+    // ---- hidden plots ----------------------------------------------------
+    check("a visible sparkline repaints on new samples",
+          harness.shownPaintsBaseline >= 0
+            && harness.shownPaints > harness.shownPaintsBaseline)
+    check("a hidden sparkline does not",
+          harness.hiddenPaintsBaseline >= 0
+            && harness.hiddenPaints === harness.hiddenPaintsBaseline)
+
     // ---- layout gating ---------------------------------------------------
     check("a gauge with every part off falls back to the placeholder",
           emptyGauge.showsPlaceholder)
@@ -224,6 +300,10 @@ ShellRoot {
           emptyGauge.implicitWidth > 12)
     check("the popup still has something to anchor to",
           emptyGauge.openPanelIndicatorWidth > 0)
+    check("a vertical bar leaves the placeholder to the button label",
+          !verticalGauge.showsPlaceholder)
+    check("and still anchors the popup to that label",
+          verticalGauge.openPanelIndicatorWidth > 0)
 
     for (var i = 0; i < notes.length; i++) console.warn("SYSMETRICS_CHECK " + notes[i])
 
