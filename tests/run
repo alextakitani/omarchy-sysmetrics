@@ -30,7 +30,17 @@ run_layer "unit (node)" node --test tests/parsers.test.js tests/engine.test.js \
                                     tests/format.test.js tests/config.test.js
 
 if [ -x /usr/lib/qt6/bin/qmltestrunner ]; then
-  run_layer "engine (qmltestrunner)" /usr/lib/qt6/bin/qmltestrunner -input tests
+  # Qt calls qFatal() if it cannot build an event dispatcher, so with no
+  # display -- a tty, a bare ssh session, CI -- this layer aborts before it
+  # runs a single test. Fall back to offscreen there, but leave a real session
+  # on its own platform plugin, which is the one the shell actually uses.
+  engine_env=()
+  if [ -z "${QT_QPA_PLATFORM:-}" ] \
+     && [ -z "${WAYLAND_DISPLAY:-}" ] && [ -z "${DISPLAY:-}" ]; then
+    engine_env=(env QT_QPA_PLATFORM=offscreen)
+  fi
+  run_layer "engine (qmltestrunner)" \
+    "${engine_env[@]}" /usr/lib/qt6/bin/qmltestrunner -input tests
 else
   echo
   echo "== engine (qmltestrunner): SKIP (not installed)"
