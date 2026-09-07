@@ -299,9 +299,30 @@ BarWidget {
 
   implicitWidth: button.implicitWidth
   implicitHeight: button.implicitHeight
-  readonly property real openPanelIndicatorWidth: strip.visible ? strip.implicitWidth : button.labelWidth
+  // Same predicate the button sizes itself by, so the popup anchors to what is
+  // actually drawn. A vertical bar draws neither Row nor placeholder-sized
+  // button, so it still falls back to the label.
+  readonly property real openPanelIndicatorWidth: root.showsPlaceholder
+    ? placeholder.implicitWidth
+    : (strip.visible ? strip.implicitWidth : button.labelWidth)
 
   readonly property real plotHeight: Math.max(9, Math.round(button.fontSize * 1.05))
+
+  // Every part of a gauge is individually switchable, so all three off leaves
+  // a gauge with nothing to draw. Treated the same as having no metrics at
+  // all: the strip stands down and the placeholder takes over.
+  readonly property bool gaugeHasContent: root.config.showIcon
+    || root.config.showSparkline
+    || root.config.showValue
+
+  // The one predicate the placeholder, the strip and both width expressions
+  // read, so visibility and the space reserved for it can never disagree.
+  //
+  // Never on a vertical bar: there the Row does not lay out at all and the
+  // WidgetButton draws its own label, so a placeholder would be a second
+  // centred text on top of the live reading.
+  readonly property bool showsPlaceholder: !root.vertical
+    && (root.config.metrics.length === 0 || !root.gaugeHasContent)
 
   TextMetrics {
     id: spaceMetrics
@@ -317,7 +338,7 @@ BarWidget {
   Text {
     id: placeholder
     anchors.centerIn: parent
-    visible: root.config.metrics.length === 0
+    visible: root.showsPlaceholder
     text: "\uF4BC"
     color: Qt.rgba(Color.bar.text.r, Color.bar.text.g, Color.bar.text.b, 0.55)
     font.family: button.fontFamily
@@ -329,7 +350,7 @@ BarWidget {
     id: strip
     anchors.centerIn: parent
     spacing: 0
-    visible: root.config.metrics.length > 0 && !(root.bar && root.bar.vertical)
+    visible: !root.showsPlaceholder && !(root.bar && root.bar.vertical)
 
     Repeater {
       model: root.config.metrics
@@ -369,6 +390,7 @@ BarWidget {
         }
 
         Sparkline {
+          visible: root.config.showSparkline
           width: root.config.sparklineWidth
           height: root.plotHeight
           primary: root.primarySeriesFor(gauge.modelData)
@@ -447,7 +469,7 @@ BarWidget {
     horizontalMargin: 6
     fixedWidth: (root.bar && root.bar.vertical)
       ? -1
-      : Math.max(12, (root.config.metrics.length === 0
+      : Math.max(12, (root.showsPlaceholder
                         ? placeholder.implicitWidth
                         : strip.implicitWidth) + scaledHorizontalMargin * 2)
 
