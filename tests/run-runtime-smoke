@@ -56,7 +56,12 @@ QT_QPA_PLATFORM=offscreen QT_FORCE_STDERR_LOGGING=1 \
   timeout 25 quickshell -p "$tmp/shell.qml" --no-color >"$log" 2>&1
 status=$?
 
-grep -E "SYSMETRICS_|ERROR|error:" "$log" | sed 's/^.*qml: //' | head -40
+# The cap is only here so a crash log cannot flood the terminal; it must stay
+# clear of the checks themselves, or a passing run scrolls its own results off
+# the end and looks like it stopped early. Sized off what the harness actually
+# emitted, with room for the errors that are the reason to cap at all.
+checks=$(grep -c "SYSMETRICS_CHECK" "$log")
+grep -E "SYSMETRICS_|ERROR|error:" "$log" | sed 's/^.*qml: //' | head -n "$((checks + 20))"
 
 if grep -q "SYSMETRICS_RUNTIME_SMOKE_PASS" "$log"; then
   echo "runtime smoke: PASS"
