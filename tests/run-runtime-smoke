@@ -56,12 +56,13 @@ QT_QPA_PLATFORM=offscreen QT_FORCE_STDERR_LOGGING=1 \
   timeout 25 quickshell -p "$tmp/shell.qml" --no-color >"$log" 2>&1
 status=$?
 
-# The cap is only here so a crash log cannot flood the terminal; it must stay
-# clear of the checks themselves, or a passing run scrolls its own results off
-# the end and looks like it stopped early. Sized off what the harness actually
-# emitted, with room for the errors that are the reason to cap at all.
-checks=$(grep -c "SYSMETRICS_CHECK" "$log")
-grep -E "SYSMETRICS_|ERROR|error:" "$log" | sed 's/^.*qml: //' | head -n "$((checks + 20))"
+# Checks and diagnostics are printed separately, each on its own terms. Sharing
+# one budget meant a noisy run could spend it all on errors and print not one
+# check -- the results scrolled off by the very output explaining why. So the
+# checks print in full, and only the diagnostics are capped, which is the sole
+# reason to cap at all: a crash log must not flood the terminal.
+grep -E "SYSMETRICS_" "$log" | sed 's/^.*qml: //'
+grep -E "ERROR|error:" "$log" | sed 's/^.*qml: //' | head -40
 
 if grep -q "SYSMETRICS_RUNTIME_SMOKE_PASS" "$log"; then
   echo "runtime smoke: PASS"
