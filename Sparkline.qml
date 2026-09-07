@@ -38,20 +38,23 @@ Canvas {
 
   renderStrategy: Canvas.Cooperative
 
-  // Guarded on visibility: a hidden Canvas still runs onPaint, so an
-  // invisible plot would keep doing the full drawing pass on every sample.
-  // Nothing is lost by skipping it — onVisibleChanged below repaints on the
-  // way back in.
+  // Every repaint request is guarded on visibility: a hidden Canvas still runs
+  // onPaint, so an invisible plot would keep doing the full drawing pass.
+  // Sampling is not the only thing that asks -- on a live bar the ceiling
+  // tracks the network and disk history, and the stroke tracks urgency, so
+  // both move while the plot is switched off. Nothing is lost by skipping
+  // them: onVisibleChanged repaints on the way back in, reading whatever
+  // these properties have become in the meantime.
   onRevisionChanged: if (visible) requestPaint()
-  onStrokeChanged: requestPaint()     // theme switch path
-  onSecondaryStrokeChanged: requestPaint()
-  onCeilingChanged: requestPaint()
-  onFloorValueChanged: requestPaint()
-  onModeChanged: requestPaint()
-  onUrgentAtChanged: requestPaint()
-  onShowThresholdChanged: requestPaint()
-  onWidthChanged: requestPaint()
-  onHeightChanged: requestPaint()
+  onStrokeChanged: if (visible) requestPaint()     // theme switch path
+  onSecondaryStrokeChanged: if (visible) requestPaint()
+  onCeilingChanged: if (visible) requestPaint()
+  onFloorValueChanged: if (visible) requestPaint()
+  onModeChanged: if (visible) requestPaint()
+  onUrgentAtChanged: if (visible) requestPaint()
+  onShowThresholdChanged: if (visible) requestPaint()
+  onWidthChanged: if (visible) requestPaint()
+  onHeightChanged: if (visible) requestPaint()
   onVisibleChanged: if (visible) requestPaint()
   Component.onCompleted: requestPaint()
 

@@ -101,12 +101,16 @@ ShellRoot {
     height: 40
     visible: true
 
+    // stroke is pinned rather than inherited: the theme's accent arrives from
+    // a file read, and a late one would land as a repaint request after the
+    // baseline was taken and read as a leak that never happened.
     Plugin.Sparkline {
       id: hiddenPlot
       visible: false
       width: 40
       height: 12
       primary: [1, 2, 3]
+      stroke: "#ff0000"
       onPaint: harness.hiddenPaints += 1
     }
 
@@ -118,6 +122,7 @@ ShellRoot {
       width: 40
       height: 12
       primary: [1, 2, 3]
+      stroke: "#ff0000"
       onPaint: harness.shownPaints += 1
     }
   }
@@ -201,6 +206,15 @@ ShellRoot {
       }
       hiddenPlot.revision += 1
       shownPlot.revision += 1
+
+      // Sampling is not the only thing that asks for paint. On a live bar the
+      // ceiling follows the network and disk history and the stroke follows
+      // urgency, so drive those too -- guarding only the revision path leaves
+      // a hidden plot repainting on every one of them.
+      hiddenPlot.ceiling = 100 + harness.ticks
+      shownPlot.ceiling = 100 + harness.ticks
+      hiddenPlot.stroke = harness.ticks % 2 ? "#00ff00" : "#0000ff"
+      shownPlot.stroke = harness.ticks % 2 ? "#00ff00" : "#0000ff"
 
       // Then the process lists are expanded, which is the only thing that
       // may start the sweep. Two sweeps at least are needed before any CPU
