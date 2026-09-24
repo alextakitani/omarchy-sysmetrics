@@ -235,14 +235,13 @@ Os arquivos vão para `$XDG_STATE_HOME/omarchy-sysmetrics/logs/` (normalmente
   `t_ms,pid,comm,cpu_s,rss_bytes`. `cpu_s` é o tempo de CPU gasto *naquela
   janela*, então somá-lo dá o total de cada processo.
 
-Cada arquivo é escrito por um único `zstd` de vida longa alimentado por um
-pipe, então um tick custa uma linha escrita num pipe — sem fork, sem reabrir
-arquivo. No intervalo padrão, isso dá mais ou menos 650 KB por dia. Os
-arquivos existem desde o início da gravação, mas o zstd comprime em blocos de
-128 KiB, então o arquivo de uma gravação em andamento fica pequeno — no
-intervalo padrão, vazio nos primeiros vinte minutos, mais ou menos — e fica até
-um bloco atrás dos dados ao vivo. Parar a gravação, ou reiniciar o shell, grava
-tudo. A varredura de processos é o único fork, uma vez por janela.
+Cada arquivo é escrito por um único processo de vida longa alimentado por um
+pipe, então um tick custa uma linha escrita num pipe — sem reabrir arquivo. A
+cada minuto, as linhas acumuladas viram um frame zstd, anexado ao arquivo e
+gravado com fsync, então um crash da máquina inteira perde no máximo o último
+minuto. No intervalo padrão, isso dá menos de 1 MB por dia. Parar a gravação,
+ou reiniciar o shell, grava tudo. Fora esse `zstd` por minuto, a varredura de
+processos é o único fork, uma vez por janela.
 
 Lendo de volta, por exemplo com DuckDB:
 

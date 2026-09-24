@@ -7,11 +7,13 @@ import "js/parsers.js" as Parsers
 
 // Writes the chosen metrics to disk for later analysis.
 //
-// Each recording opens one long-lived `zstd` per file and feeds it rows over
+// Each recording opens one long-lived writer per file and feeds it rows over
 // its stdin, so the recurring cost is formatting a line and one pipe write:
-// no fork, no file open, no rewrite of a growing file per tick. Numeric CSV
-// compresses around tenfold, so a day at the default interval is a few
-// hundred KB on disk.
+// no file open, no rewrite of a growing file per tick. Once a minute the
+// writer seals what it has into a zstd frame appended to the file and fsyncs
+// it, so a crash of the whole machine loses at most that last minute. Numeric
+// CSV compresses around eightfold even in minute-sized frames, so a day at the
+// default interval is under a megabyte on disk.
 //
 // Rows are written from the sampler's latest completed readings, so `t_ms` is
 // when the row was written and the values are at most one interval older.
@@ -37,6 +39,10 @@ Item {
   // day, the per-window CPU seconds are each process's total.
   readonly property int processWindowMs: 30000
 
+  // How often the writers seal a frame onto disk: the most a crash can lose.
+  readonly property int flushMs: 60000
+  property double lastFlushAt: 0
+
   readonly property string directory: {
     var state = Quickshell.env("XDG_STATE_HOME")
     return (state ? state : Quickshell.env("HOME") + "/.local/state") + "/omarchy-sysmetrics/logs"
@@ -58,27 +64,35 @@ Item {
     startedAt = Date.now()
     elapsedMs = 0
     lastSweepAt = 0
+    lastFlushAt = startedAt
     previousTicks = ({})
     rotate()
     active = true
   }
 
-  // A new pair of files for a recording already running: the old writers
-  // close, which is what flushes zstd's last partial block to disk. The
-  // recording itself carries on -- its clock and the process baseline are
-  // untouched, so the next process window still has its CPU column.
+  // A new pair of files for a recording already running. The recording
+  // itself carries on -- its clock and the process baseline are untouched, so
+  // the next process window still has its CPU column.
   function rotate() {
     sessionSelection = selection.join(",")
     session.active = false
     session.active = true
   }
 
+  // Seals every row written so far onto disk.
+  function flush() {
+    lastFlushAt = Date.now()
+    var s = session.item
+    if (!s) return
+    if (s.metricsWriter.ready) s.metricsWriter.write("\n")
+    if (s.processesWriter.ready) s.processesWriter.write("\n")
+  }
+
   // Hands the logs to the default agent (Omarchy's `omarchy agent prompt`),
-  // started in the logs folder. A running recording is rotated first:
-  // otherwise its last twenty minutes or so would still be sitting in zstd's
-  // buffer, invisible to the agent.
+  // started in the logs folder. A running recording is flushed first, so the
+  // agent sees everything up to the click.
   function analyze() {
-    if (active) rotate()
+    if (active) flush()
     Quickshell.execDetached(["bash", "-lc", "cd \"$1\" && exec omarchy-agent-prompt \"$2\"",
                              "bash", directory, Log.analysisPrompt(directory)])
   }
@@ -133,6 +147,7 @@ Item {
     var s = session.item
     if (s.metricsWriter.ready)
       s.metricsWriter.write(Log.metricsRow(s.metricIds, snapshot(), now))
+    if (now - lastFlushAt >= flushMs) flush()
 
     if (!s.withProcesses) return
     if (sweep.running) {
@@ -184,23 +199,26 @@ Item {
     }
   }
 
-  // One stream into one compressed file.
+  // One stream into one compressed file, as a run of zstd frames.
   //
-  // The shell creates the file, not zstd: `zstd -o` opens its output only
-  // once a full 128 KiB input block has arrived -- twenty minutes of rows --
-  // so a recording just started showed no file at all. Created up front, the
-  // file is there from the first second, even while zstd is still filling
-  // its first block.
+  // A single long-lived zstd writes nothing until a full 128 KiB input block
+  // has arrived -- twenty minutes of rows -- so a machine crash lost the whole
+  // recording. Instead awk passes rows to a zstd, and an empty line (which no
+  // CSV row is) makes it close that zstd: the frame is finished, appended and
+  // fsynced, and the next row starts a new one. Concatenated frames are one
+  // valid .zst; a frame cut short by a crash still lets `zstd -dc` print every
+  // row before it.
   //
-  // `set -C` keeps the refusal to overwrite that `-o` had, and the stamp
-  // carries milliseconds so a restart within the same second never meets it.
+  // The shell creates the file up front, so it is there from the first
+  // second. `set -C` refuses to overwrite one, and the stamp carries
+  // milliseconds so a restart within the same second never meets it.
   //
-  // zstd runs as a background child of the sh, reading the sh's stdin, and
-  // the sh waits on it. If the shell tears this Process down by killing it,
-  // only the sh dies: zstd keeps running until the pipe's write end closes --
-  // which happens as the shell lets go of it -- then flushes and finalises the
-  // frame. Exec'ing zstd directly would put it in the line of fire and leave a
-  // truncated file behind on every shell restart.
+  // awk runs as a background child of the sh, reading the sh's stdin, and the
+  // sh waits on it. If the shell tears this Process down by killing it, only
+  // the sh dies: awk keeps running until the pipe's write end closes -- which
+  // happens as the shell lets go of it -- then seals the last frame. Exec'ing
+  // it directly would put it in the line of fire and lose the tail on every
+  // shell restart.
   //
   // `0<&0` because a non-interactive sh points an `&` job's stdin at
   // /dev/null; the explicit redirection keeps the pipe.
@@ -211,7 +229,9 @@ Item {
     // ahead of the header, so nothing is written until it has gone out.
     property bool ready: false
     stdinEnabled: true
-    command: ["sh", "-c", "set -C; mkdir -p \"$(dirname \"$1\")\" && { zstd -q -c 0<&0 >\"$1\" & wait; }", "sh", path]
+    command: ["sh", "-c", "set -C; mkdir -p \"$(dirname \"$1\")\" && : >\"$1\" && { F=\"$1\" awk "
+              + "'BEGIN { z = \"zstd -q -c >>\\\"$F\\\" && sync \\\"$F\\\"\" } NF == 0 { close(z); next } { print | z } END { close(z) }'"
+              + " 0<&0 & wait; }", "sh", path]
     running: path !== ""
     onStarted: {
       write(header)

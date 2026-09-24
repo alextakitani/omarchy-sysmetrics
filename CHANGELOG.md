@@ -6,6 +6,15 @@ Notable changes to System Metrics. Versions follow [semantic versioning](https:/
 the patch digit is a fix, the minor digit adds something a config can ask for, and
 nothing has needed a major bump yet.
 
+## Unreleased
+### Fixed
+
+- **A crash no longer loses the recording.** One long-lived `zstd` wrote
+  nothing until it had 128 KiB of input — about twenty minutes of rows — so a
+  machine crash left an empty file. Rows are now sealed into a zstd frame,
+  appended and fsynced once a minute, so a crash loses at most that minute; the
+  analyze button flushes instead of starting a new pair of files.
+
 ## 1.4.0 — 2026-09-24
 ### Added
 

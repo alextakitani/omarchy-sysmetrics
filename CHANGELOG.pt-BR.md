@@ -6,6 +6,16 @@ Mudanças relevantes no System Metrics. As versões seguem o [versionamento sem�
 o dígito de patch é uma correção, o dígito minor acrescenta algo que uma configuração pode
 pedir, e nada precisou de um bump major até agora.
 
+## Não lançado
+### Corrigido
+
+- **Um crash não perde mais a gravação.** Um único `zstd` de vida longa não
+  gravava nada até juntar 128 KiB de entrada — uns vinte minutos de linhas —,
+  então um crash da máquina deixava o arquivo vazio. Agora as linhas viram um
+  frame zstd, anexado e gravado com fsync, a cada minuto: um crash perde no
+  máximo esse minuto. O botão de análise faz flush em vez de abrir um novo par
+  de arquivos.
+
 ## 1.4.0 — 2026-09-24
 ### Adicionado
 

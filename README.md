@@ -202,7 +202,7 @@ temperature, and which processes were behind them.
 - Once there is a recording, a **robot** button hands it to your default
   agent (`omarchy agent prompt`), started in the logs folder with a prompt
   that explains the files and asks for averages, peaks, the processes behind
-  them and the energy used. A running recording is rotated first, so the
+  them and the energy used. A running recording is flushed first, so the
   agent sees everything up to the click.
 
 Files go to `$XDG_STATE_HOME/omarchy-sysmetrics/logs/` (normally
@@ -219,14 +219,13 @@ Files go to `$XDG_STATE_HOME/omarchy-sysmetrics/logs/` (normally
   `t_ms,pid,comm,cpu_s,rss_bytes`. `cpu_s` is CPU time spent *in that window*,
   so summing it gives each process's total.
 
-Each file is written by one long-lived `zstd` fed over a pipe, so a tick costs
-one line written to a pipe — no fork, no file reopened. At the default
-interval that is roughly 650 KB a day. The files exist from the moment a
-recording starts, but zstd compresses in 128 KiB blocks, so a running
-recording's file stays small — at the default interval, empty for about the
-first twenty minutes — and trails the live data by up to one block. Stopping
-the recording, or restarting the shell, flushes everything. The process sweep
-is the only fork, once per window.
+Each file is written by one long-lived writer fed over a pipe, so a tick costs
+one line written to a pipe — no file reopened. Once a minute the rows so far
+are sealed into a zstd frame, appended to the file and fsynced, so a crash of
+the whole machine loses at most the last minute. At the default interval that
+is under 1 MB a day. Stopping the recording, or restarting the shell, flushes
+everything. Apart from that per-minute `zstd`, the process sweep is the only
+fork, once per window.
 
 Reading it back, for example with DuckDB:
 
