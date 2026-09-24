@@ -23,6 +23,10 @@ nothing has needed a major bump yet.
   "what ran hot today, and which process did it". Rows go down a pipe to one
   long-lived `zstd`, so a tick costs no fork. The strip shows a red dot while a
   recording runs. New config keys: `logMetrics`, `recording`.
+  A folder button opens the logs, and once there is a recording, a robot
+  button hands it to your default agent (`omarchy agent prompt`) with a prompt
+  that explains the files and asks for averages, peaks, the processes behind
+  them and the energy used.
 
 - **`showSparkline`** joins `showIcon` and `showValue`, so the strip can drop the
   plots and keep the readouts — `cpu 46%` as plain text next to the clock, with no

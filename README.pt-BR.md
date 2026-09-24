@@ -214,6 +214,11 @@ a temperatura de um dia inteiro, e quais processos estavam por trás delas.
   arquivos.
 - O botão de **pasta** ao lado do **rec** abre a pasta onde as gravações são
   salvas.
+- Quando já existe uma gravação, um botão de **robô** a entrega ao seu agente
+  padrão (`omarchy agent prompt`), aberto na pasta de logs com um prompt que
+  explica os arquivos e pede médias, picos, os processos por trás deles e a
+  energia gasta. Uma gravação em andamento troca de arquivos antes, então o
+  agente vê tudo até o clique.
 
 Os arquivos vão para `$XDG_STATE_HOME/omarchy-sysmetrics/logs/` (normalmente
 `~/.local/state/…`), nomeados pela hora de início:

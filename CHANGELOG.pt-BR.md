@@ -23,7 +23,10 @@ pedir, e nada precisou de um bump major até agora.
   responder "o que esquentou hoje, e qual processo fez isso". As linhas descem por um pipe
   até um único `zstd` de vida longa, então um tick não custa nenhum fork. A faixa mostra
   um ponto vermelho enquanto uma gravação está rodando. Novas chaves de configuração:
-  `logMetrics`, `recording`.
+  `logMetrics`, `recording`. Um botão de pasta abre os logs e, quando já existe
+  uma gravação, um botão de robô a entrega ao seu agente padrão
+  (`omarchy agent prompt`) com um prompt que explica os arquivos e pede médias,
+  picos, os processos por trás deles e a energia gasta.
 
 - **`showSparkline`** se junta a `showIcon` e `showValue`, então a faixa pode dispensar os
   gráficos e manter as leituras — `cpu 46%` como texto simples ao lado do relógio, sem

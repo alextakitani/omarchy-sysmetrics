@@ -181,7 +181,7 @@ Ui.Panel {
             Rectangle {
               id: recButton
               readonly property bool recording: root.recorder ? root.recorder.active : false
-              anchors.right: folderButton.left
+              anchors.right: analyzeButton.visible ? analyzeButton.left : folderButton.left
               anchors.rightMargin: Style.space(4)
               anchors.verticalCenter: parent.verticalCenter
               width: recRow.implicitWidth + Style.space(10)
@@ -232,6 +232,40 @@ Ui.Panel {
                 text: recButton.recording
                   ? "Stop recording"
                   : "Start recording the readings marked with a red dot"
+              }
+            }
+
+            // Hands the latest recording to the default agent. Only once
+            // there is a recording to hand over.
+            Rectangle {
+              id: analyzeButton
+              visible: root.recorder ? root.recorder.hasLogs : false
+              anchors.right: folderButton.left
+              anchors.verticalCenter: parent.verticalCenter
+              width: Style.space(20)
+              height: Style.space(20)
+              radius: Style.space(4)
+              color: analyzeMouse.containsMouse ? Util.alpha(Color.muted, 0.18) : "transparent"
+
+              Text {
+                anchors.centerIn: parent
+                text: "\uDB81\uDEA9"
+                color: analyzeMouse.containsMouse ? Color.accent : Color.muted
+                font.family: Style.font.family
+                font.pixelSize: Style.font.caption
+              }
+
+              MouseArea {
+                id: analyzeMouse
+                anchors.fill: parent
+                hoverEnabled: true
+                cursorShape: Qt.PointingHandCursor
+                onClicked: root.recorder.analyze()
+              }
+
+              Ui.PanelToolTip {
+                visible: analyzeMouse.containsMouse
+                text: "Analyze the latest recording with the default agent"
               }
             }
 

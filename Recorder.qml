@@ -1,4 +1,5 @@
 import QtQuick
+import Qt.labs.folderlistmodel
 import Quickshell
 import Quickshell.Io
 import "js/log.js" as Log
@@ -54,14 +55,32 @@ Item {
   }
 
   function start() {
-    sessionSelection = selection.join(",")
     startedAt = Date.now()
     elapsedMs = 0
     lastSweepAt = 0
     previousTicks = ({})
+    rotate()
+    active = true
+  }
+
+  // A new pair of files for a recording already running: the old writers
+  // close, which is what flushes zstd's last partial block to disk. The
+  // recording itself carries on -- its clock and the process baseline are
+  // untouched, so the next process window still has its CPU column.
+  function rotate() {
+    sessionSelection = selection.join(",")
     session.active = false
     session.active = true
-    active = true
+  }
+
+  // Hands the logs to the default agent (Omarchy's `omarchy agent prompt`),
+  // started in the logs folder. A running recording is rotated first:
+  // otherwise its last twenty minutes or so would still be sitting in zstd's
+  // buffer, invisible to the agent.
+  function analyze() {
+    if (active) rotate()
+    Quickshell.execDetached(["bash", "-lc", "cd \"$1\" && exec omarchy-agent-prompt \"$2\"",
+                             "bash", directory, Log.analysisPrompt(directory)])
   }
 
   // Dropping the session destroys the writers, which closes their stdin; each
@@ -80,7 +99,7 @@ Item {
   property bool wanted: false
   onWantedChanged: wanted ? start() : stop()
 
-  onSelectionChanged: if (active && selection.join(",") !== sessionSelection) start()
+  onSelectionChanged: if (active && selection.join(",") !== sessionSelection) rotate()
 
   function snapshot() {
     var s = sampler
@@ -212,7 +231,7 @@ Item {
       property var metricIds: []
       property bool withProcesses: false
       Component.onCompleted: {
-        stamp = Qt.formatDateTime(new Date(recorder.startedAt), "yyyy-MM-dd'T'HH-mm-ss.zzz")
+        stamp = Qt.formatDateTime(new Date(), "yyyy-MM-dd'T'HH-mm-ss.zzz")
         metricIds = Log.metricIds(recorder.selection)
         withProcesses = recorder.selection.indexOf("processes") >= 0
       }
@@ -231,5 +250,27 @@ Item {
         header: Log.PROCESS_HEADER
       }
     }
+  }
+
+  // Whether there is anything to analyze, for the popup's analyze button.
+  //
+  // Watched rather than polled: FolderListModel follows the directory through
+  // the kernel's file watcher, so this costs nothing per tick. It cannot see a
+  // directory created after it starts watching, though, so the directory is
+  // made first -- one mkdir per shell start -- and only then handed over.
+  readonly property bool hasLogs: logFiles.count > 0
+  property bool directoryReady: false
+
+  Process {
+    command: ["mkdir", "-p", recorder.directory]
+    running: true
+    onExited: recorder.directoryReady = true
+  }
+
+  FolderListModel {
+    id: logFiles
+    folder: recorder.directoryReady ? "file://" + recorder.directory : ""
+    nameFilters: ["*.csv.zst"]
+    showDirs: false
   }
 }

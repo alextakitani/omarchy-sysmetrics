@@ -59,3 +59,19 @@ describe('processes file', () => {
     assert.equal(out, '1,7,"x",,9\n')
   })
 })
+
+describe('analysis prompt', () => {
+  const prompt = L.analysisPrompt('/home/u/.local/state/omarchy-sysmetrics/logs')
+
+  it('points the agent at the logs folder', () => {
+    assert.ok(prompt.includes('/home/u/.local/state/omarchy-sysmetrics/logs'))
+  })
+
+  // Built from the column table, so a new column cannot go undescribed.
+  it('describes every column the log can contain', () => {
+    for (const group of Object.values(L.METRIC_COLUMNS)) {
+      for (const [column] of group) assert.ok(prompt.includes(column + ':'), column)
+    }
+    assert.ok(prompt.includes('cpu_s'))
+  })
+})

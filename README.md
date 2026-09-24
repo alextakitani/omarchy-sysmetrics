@@ -197,6 +197,11 @@ temperature, and which processes were behind them.
 - A recording survives a shell restart: it resumes into a new pair of files.
 - The **folder** button beside **rec** opens the folder the recordings are
   written to.
+- Once there is a recording, a **robot** button hands it to your default
+  agent (`omarchy agent prompt`), started in the logs folder with a prompt
+  that explains the files and asks for averages, peaks, the processes behind
+  them and the energy used. A running recording is rotated first, so the
+  agent sees everything up to the click.
 
 Files go to `$XDG_STATE_HOME/omarchy-sysmetrics/logs/` (normally
 `~/.local/state/…`), named by start time:
