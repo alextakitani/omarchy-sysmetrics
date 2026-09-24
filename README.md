@@ -1,5 +1,7 @@
 # System Metrics
 
+**English** · [Português (Brasil)](README.pt-BR.md)
+
 A bar widget for the [Omarchy](https://omarchy.org/) shell: a strip of live
 system gauges, and a popup with the detail behind them.
 
@@ -210,9 +212,12 @@ Files go to `$XDG_STATE_HOME/omarchy-sysmetrics/logs/` (normally
 
 Each file is written by one long-lived `zstd` fed over a pipe, so a tick costs
 one line written to a pipe — no fork, no file reopened. At the default
-interval that is roughly 650 KB a day. zstd writes in blocks, so a running
-recording's file lags behind by a few minutes; it is complete once stopped.
-The process sweep is the only fork, once per window.
+interval that is roughly 650 KB a day. The files exist from the moment a
+recording starts, but zstd compresses in 128 KiB blocks, so a running
+recording's file stays small — at the default interval, empty for about the
+first twenty minutes — and trails the live data by up to one block. Stopping
+the recording, or restarting the shell, flushes everything. The process sweep
+is the only fork, once per window.
 
 Reading it back, for example with DuckDB:
 

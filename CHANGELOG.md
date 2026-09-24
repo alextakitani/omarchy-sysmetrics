@@ -1,5 +1,7 @@
 # Changelog
 
+**English** · [Português (Brasil)](CHANGELOG.pt-BR.md)
+
 Notable changes to System Metrics. Versions follow [semantic versioning](https://semver.org/):
 the patch digit is a fix, the minor digit adds something a config can ask for, and
 nothing has needed a major bump yet.

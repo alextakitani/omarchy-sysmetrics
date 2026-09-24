@@ -160,9 +160,14 @@ Item {
 
   // One stream into one compressed file.
   //
-  // The stamp carries milliseconds because zstd, rightly, will not overwrite
-  // an existing file: a restart within the same second would otherwise lose
-  // the new session to an error nobody sees.
+  // The shell creates the file, not zstd: `zstd -o` opens its output only
+  // once a full 128 KiB input block has arrived -- twenty minutes of rows --
+  // so a recording just started showed no file at all. Created up front, the
+  // file is there from the first second, even while zstd is still filling
+  // its first block.
+  //
+  // `set -C` keeps the refusal to overwrite that `-o` had, and the stamp
+  // carries milliseconds so a restart within the same second never meets it.
   //
   // zstd runs as a background child of the sh, reading the sh's stdin, and
   // the sh waits on it. If the shell tears this Process down by killing it,
@@ -180,7 +185,7 @@ Item {
     // ahead of the header, so nothing is written until it has gone out.
     property bool ready: false
     stdinEnabled: true
-    command: ["sh", "-c", "mkdir -p \"$(dirname \"$1\")\" && { zstd -q -o \"$1\" 0<&0 & wait; }", "sh", path]
+    command: ["sh", "-c", "set -C; mkdir -p \"$(dirname \"$1\")\" && { zstd -q -c 0<&0 >\"$1\" & wait; }", "sh", path]
     running: path !== ""
     onStarted: {
       write(header)
