@@ -181,8 +181,8 @@ Ui.Panel {
             Rectangle {
               id: recButton
               readonly property bool recording: root.recorder ? root.recorder.active : false
-              anchors.right: refreshRow.left
-              anchors.rightMargin: Style.space(10)
+              anchors.right: folderButton.left
+              anchors.rightMargin: Style.space(4)
               anchors.verticalCenter: parent.verticalCenter
               width: recRow.implicitWidth + Style.space(10)
               height: Style.space(20)
@@ -226,6 +226,46 @@ Ui.Panel {
                 cursorShape: Qt.PointingHandCursor
                 onClicked: root.toggleRecording()
               }
+
+              Ui.PanelToolTip {
+                visible: recMouse.containsMouse
+                text: recButton.recording
+                  ? "Stop recording"
+                  : "Start recording the readings marked with a red dot"
+              }
+            }
+
+            // Opens the folder the recordings are written to.
+            Rectangle {
+              id: folderButton
+              anchors.right: refreshRow.left
+              anchors.rightMargin: Style.space(10)
+              anchors.verticalCenter: parent.verticalCenter
+              width: Style.space(20)
+              height: Style.space(20)
+              radius: Style.space(4)
+              color: folderMouse.containsMouse ? Util.alpha(Color.muted, 0.18) : "transparent"
+
+              Text {
+                anchors.centerIn: parent
+                text: "\uF07B"
+                color: folderMouse.containsMouse ? Color.accent : Color.muted
+                font.family: Style.font.family
+                font.pixelSize: Style.font.caption
+              }
+
+              MouseArea {
+                id: folderMouse
+                anchors.fill: parent
+                hoverEnabled: true
+                cursorShape: Qt.PointingHandCursor
+                onClicked: if (root.recorder) root.recorder.openDirectory()
+              }
+
+              Ui.PanelToolTip {
+                visible: folderMouse.containsMouse
+                text: "Open logs folder"
+              }
             }
 
             Row {
@@ -244,7 +284,8 @@ Ui.Panel {
               }
 
               Repeater {
-                model: [{ label: "\u2212", delta: -500 }, { label: "+", delta: 500 }]
+                model: [{ label: "\u2212", delta: -500, hint: "Sample more often" },
+                        { label: "+", delta: 500, hint: "Sample less often" }]
 
                 delegate: Rectangle {
                   required property var modelData
@@ -267,6 +308,11 @@ Ui.Panel {
                     hoverEnabled: true
                     cursorShape: Qt.PointingHandCursor
                     onClicked: root.stepInterval(modelData.delta)
+                  }
+
+                  Ui.PanelToolTip {
+                    visible: stepMouse.containsMouse
+                    text: modelData.hint
                   }
                 }
               }
@@ -309,6 +355,11 @@ Ui.Panel {
                 hoverEnabled: true
                 cursorShape: Qt.PointingHandCursor
                 onClicked: root.sticky = !root.sticky
+              }
+
+              Ui.PanelToolTip {
+                visible: pinMouse.containsMouse
+                text: root.sticky ? "Let the popup close on outside clicks" : "Keep the popup open"
               }
             }
           }

@@ -62,6 +62,16 @@ ColumnLayout {
     }
     onContainsMouseChanged: root.headerHovered = containsMouse
 
+    // What a click on the heading does. Not over the log marker, which has
+    // its own hint.
+    PanelToolTip {
+      visible: headerMouse.containsMouse && !logMouse.containsMouse
+               && (root.collapsible || root.metricId !== "")
+      text: root.collapsible
+        ? (root.expanded ? "Hide the list" : "Show the list")
+        : (root.pinned ? "Remove from the bar" : "Show on the bar")
+    }
+
   RowLayout {
     id: headerRow
     // Width follows the hit area; height is the row's own, so the two do not
@@ -140,6 +150,11 @@ ColumnLayout {
         hoverEnabled: true
         cursorShape: Qt.PointingHandCursor
         onClicked: root.logToggled()
+      }
+
+      PanelToolTip {
+        visible: logMouse.containsMouse
+        text: root.logged ? "Stop logging this reading" : "Log this reading when recording"
       }
     }
   }

@@ -195,6 +195,8 @@ temperature, and which processes were behind them.
   shows its duration, and the strip carries a red dot, because a recording
   keeps its metrics sampled with the popup shut.
 - A recording survives a shell restart: it resumes into a new pair of files.
+- The **folder** button beside **rec** opens the folder the recordings are
+  written to.
 
 Files go to `$XDG_STATE_HOME/omarchy-sysmetrics/logs/` (normally
 `~/.local/state/…`), named by start time:

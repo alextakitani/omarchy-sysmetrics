@@ -46,6 +46,13 @@ Item {
   // interval must not split a recording into two files.
   property string sessionSelection: ""
 
+  // Created first, so the button works before the first recording too. A
+  // login bash, as the shell's own launchers use, so xdg-open and the file
+  // manager get the session's PATH and environment.
+  function openDirectory() {
+    Quickshell.execDetached(["bash", "-lc", "mkdir -p \"$1\" && exec xdg-open \"$1\"", "bash", directory])
+  }
+
   function start() {
     sessionSelection = selection.join(",")
     startedAt = Date.now()

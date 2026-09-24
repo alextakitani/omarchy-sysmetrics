@@ -212,6 +212,8 @@ a temperatura de um dia inteiro, e quais processos estavam por trás delas.
   gravação mantém as métricas dela sendo amostradas com o popup fechado.
 - Uma gravação sobrevive a um restart do shell: ela continua num novo par de
   arquivos.
+- O botão de **pasta** ao lado do **rec** abre a pasta onde as gravações são
+  salvas.
 
 Os arquivos vão para `$XDG_STATE_HOME/omarchy-sysmetrics/logs/` (normalmente
 `~/.local/state/…`), nomeados pela hora de início:
