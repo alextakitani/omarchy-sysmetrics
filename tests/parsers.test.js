@@ -634,20 +634,19 @@ describe('process table', () => {
     assert.deepEqual(P.topProcesses(rows, 'cpuPercent', 5).map(r => r.pid), [2, 9])
   })
 
-  // The producer as Readers.qml runs it, against this machine's real /proc.
-  // A pid exiting between the glob and the open makes awk exit non-zero on
-  // most sweeps of a busy machine, while still printing every other row --
-  // hence the `|| true`, which is in the shipped command for the same reason.
+  // The producer as Readers.qml ships it, against this machine's real /proc.
+  // Read out of Readers.qml rather than copied here: a copy is what let this
+  // test pinned to the old awk-walks-the-glob form, which gawk aborted
+  // on the first pid to vanish mid-sweep.
   it('reads the real process table', () => {
     const { execFileSync } = require('node:child_process')
-    const sweep = execFileSync('sh', ['-c',
-      "(awk 'FNR==1{line=$0;cp=0;" +
-      'for(i=length(line);i>0;i--){if(substr(line,i,1)==")"){cp=i;break}}' +
-      'if(cp==0)next;op=index(line,"(");if(op<2)next;' +
-      'pid=substr(line,1,op-2);comm=substr(line,op+1,cp-op-1);' +
-      'rest=substr(line,cp+2);n=split(rest,f," ");if(n<22)next;' +
-      'gsub(/[^ -~]/,"?",comm);print pid, (f[12]+f[13]), f[22], comm' +
-      "}' /proc/[0-9]*/stat 2>/dev/null || true)"], { encoding: 'utf8' })
+    const fs = require('node:fs')
+    const qml = fs.readFileSync(require('node:path').join(__dirname, '..', 'Readers.qml'), 'utf8')
+    const block = qml.slice(qml.indexOf('processSweepScript:'), qml.indexOf('id: processesProcess'))
+    const script = [...block.matchAll(/^\s*"((?:[^"\\]|\\.)*)"/gm)].map(m => JSON.parse('"' + m[1] + '"')).join('')
+    const out = execFileSync('sh', ['-c', script], { encoding: 'utf8' })
+    // The page size rides on the first line.
+    const sweep = out.slice(out.indexOf('\n') + 1)
     const rows = P.parseProcessTable(sweep)
     assert.ok(rows.length > 0)
     // pid 1 is always present and always named.

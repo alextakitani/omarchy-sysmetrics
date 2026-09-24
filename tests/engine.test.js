@@ -187,3 +187,21 @@ describe('non-finite values are rejected by the engine guards', () => {
     assert.equal(E.rateBetween(0, 1000, 1000), 1000)
   })
 })
+
+describe('power from an energy counter', () => {
+  it('turns microjoules over milliseconds into watts', () => {
+    // 30 J over 2 s is 15 W.
+    assert.equal(E.powerFromEnergy(1e6, 31e6, 2000, 65e9), 15)
+  })
+
+  // RAPL wraps at max_energy_range_uj; a busy package gets there in hours.
+  it('unwinds a wrap when the range is known', () => {
+    assert.equal(E.powerFromEnergy(65e9 - 10e6, 20e6, 2000, 65e9), 15)
+  })
+
+  it('refuses a backwards step it cannot explain', () => {
+    assert.equal(E.powerFromEnergy(5e6, 1e6, 2000, NaN), null)
+    assert.equal(E.powerFromEnergy(NaN, 1e6, 2000, 65e9), null)
+    assert.equal(E.powerFromEnergy(1e6, 2e6, 0, 65e9), null)
+  })
+})

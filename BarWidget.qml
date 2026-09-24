@@ -34,6 +34,7 @@ BarWidget {
     if (id === "storage") return "\uDB80\uDECA"
     if (id === "cputemp") return "\uF2C9"
     if (id === "gputemp") return "\uF2C9"
+    if (id === "cpupower" || id === "gpupower") return "\uF0E7"
     return "\uF4BC"
   }
 
@@ -56,6 +57,8 @@ BarWidget {
     if (id === "storage") return Format.formatPercent(sampler.storagePercent)
     if (id === "cputemp") return Format.formatTempShort(sampler.temperature)
     if (id === "gputemp") return Format.formatTempShort(sampler.gpuTemperature)
+    if (id === "cpupower") return Format.formatWatts(sampler.cpuPower)
+    if (id === "gpupower") return Format.formatWatts(sampler.gpuPower)
     return Format.formatPercent(sampler.cpuUsage)
   }
 
@@ -73,6 +76,9 @@ BarWidget {
                                    config.disk.minCeiling)
     if (id === "cputemp") return config.cputemp.range[1]
     if (id === "gputemp") return config.gputemp.range[1]
+    // Floored at 50 W so an idle desktop does not fill the plot.
+    if (id === "cpupower") return Engine.rollingCeiling([Engine.ringValues(sampler.cpuPowerHistory)], 50)
+    if (id === "gpupower") return Engine.rollingCeiling([Engine.ringValues(sampler.gpuPowerHistory)], 50)
     return 100
   }
 
@@ -86,6 +92,8 @@ BarWidget {
     if (id === "storage") return Engine.ringValues(sampler.storageHistory)
     if (id === "cputemp") return Engine.ringValues(sampler.temperatureHistory)
     if (id === "gputemp") return Engine.ringValues(sampler.gpuTemperatureHistory)
+    if (id === "cpupower") return Engine.ringValues(sampler.cpuPowerHistory)
+    if (id === "gpupower") return Engine.ringValues(sampler.gpuPowerHistory)
     return Engine.ringValues(sampler.cpuHistory)
   }
 
@@ -172,8 +180,8 @@ BarWidget {
   // together, so the strip reads as "here is the CPU, here is the GPU" rather
   // than as a flat run of unrelated numbers.
   function deviceFor(id) {
-    if (id === "cpu" || id === "cputemp" || id === "memory") return "cpu"
-    if (id === "gpu" || id === "vram" || id === "gputemp") return "gpu"
+    if (id === "cpu" || id === "cputemp" || id === "cpupower" || id === "memory") return "cpu"
+    if (id === "gpu" || id === "vram" || id === "gputemp" || id === "gpupower") return "gpu"
     return "io"
   }
 
@@ -188,6 +196,7 @@ BarWidget {
     if (id === "network" || id === "disk")
       return "888M\u2009\u2193 888M\u2009\u2191"
     if (id === "cputemp" || id === "gputemp") return "100\u00b0"
+    if (id === "cpupower" || id === "gpupower") return "888W"
     return "100%"
   }
 
@@ -200,43 +209,48 @@ BarWidget {
     return config.metrics.indexOf(id) >= 0
   }
 
-  function setInterval(ms) {
-    var clamped = Math.max(500, Math.min(15000, Math.round(ms / 500) * 500))
-    if (clamped === config.intervalMs) return
+  // Applied locally first so the strip reacts on the click itself; the
+  // shell.json write comes back through the bar as the same value.
+  function writeSetting(key, value) {
     var entry = { id: root.moduleName }
-    for (var key in root.settings) if (key !== "id") entry[key] = root.settings[key]
-    entry.intervalMs = clamped
+    for (var k in root.settings) if (k !== "id") entry[k] = root.settings[k]
+    entry[key] = value
     root.settings = entry
     if (root.bar && root.bar.shell && typeof root.bar.shell.updateEntryInline === "function")
       root.bar.shell.updateEntryInline(root.moduleName, entry)
   }
 
-  function toggleMetric(id) {
+  function setInterval(ms) {
+    var clamped = Math.max(500, Math.min(15000, Math.round(ms / 500) * 500))
+    if (clamped === config.intervalMs) return
+    writeSetting("intervalMs", clamped)
+  }
+
+  // Rebuilt in the canonical order rather than by appending, so toggling an
+  // id off and on again puts it back where it belongs instead of at the end.
+  function toggledList(current, canonical, id) {
+    if (canonical.indexOf(id) < 0) return null
     var next = []
-    var found = false
-    // Rebuilt in the canonical order rather than by appending, so toggling a
-    // metric off and on again puts it back where it belongs in the strip
-    // instead of at the end.
-    for (var i = 0; i < Config.METRIC_IDS.length; i++) {
-      var candidate = Config.METRIC_IDS[i]
-      var on = metricEnabled(candidate)
-      if (candidate === id) {
-        found = true
-        on = !on
-      }
-      if (on) next.push(candidate)
+    for (var i = 0; i < canonical.length; i++) {
+      var on = current.indexOf(canonical[i]) >= 0
+      if (canonical[i] === id) on = !on
+      if (on) next.push(canonical[i])
     }
-    if (!found) return
+    return next
+  }
 
-    var entry = { id: root.moduleName }
-    for (var key in root.settings) if (key !== "id") entry[key] = root.settings[key]
-    entry.metrics = next
+  function toggleMetric(id) {
+    var next = toggledList(config.metrics, Config.METRIC_IDS, id)
+    if (next) writeSetting("metrics", next)
+  }
 
-    // Applied locally first so the strip reacts on the click itself; the
-    // shell.json write comes back through the bar as the same value.
-    root.settings = entry
-    if (root.bar && root.bar.shell && typeof root.bar.shell.updateEntryInline === "function")
-      root.bar.shell.updateEntryInline(root.moduleName, entry)
+  function toggleLogged(id) {
+    var next = toggledList(config.logMetrics, Config.LOG_IDS, id)
+    if (next) writeSetting("logMetrics", next)
+  }
+
+  function toggleRecording() {
+    writeSetting("recording", !config.recording)
   }
 
   // ---- Sampling ----------------------------------------------------------
@@ -245,6 +259,7 @@ BarWidget {
     id: sampler
     config: root.config
     popupOpen: root.opened
+    recording: recorder.active ? root.config.logMetrics : []
   }
 
   Readers {
@@ -252,12 +267,23 @@ BarWidget {
     sampler: sampler
   }
 
+  Recorder {
+    id: recorder
+    sampler: sampler
+    processSweepScript: readers.processSweepScript
+    selection: root.config.logMetrics
+    wanted: root.config.recording
+  }
+
   Timer {
     interval: root.config.intervalMs
     running: true
     repeat: true
     triggeredOnStart: true
-    onTriggered: readers.sampleAll()
+    onTriggered: {
+      recorder.tick()
+      readers.sampleAll()
+    }
   }
 
   // ---- Popup wiring ------------------------------------------------------
@@ -279,6 +305,7 @@ BarWidget {
     if ("anchorItem" in target) target.anchorItem = popupAnchor
     if ("hostWidget" in target) target.hostWidget = root
     if ("sampler" in target) target.sampler = sampler
+    if ("recorder" in target) target.recorder = recorder
   }
 
   onBarChanged: injectPanel()
@@ -442,6 +469,24 @@ BarWidget {
         }
       }
     }
+
+    // A recording keeps its metrics sampled with the popup shut, so it is
+    // never allowed to run unseen: the strip carries a dot while it does.
+    Item {
+      visible: recorder.active
+      width: spaceMetrics.advanceWidth * 1.4 + recordingDot.width
+      height: root.plotHeight
+
+      Rectangle {
+        id: recordingDot
+        anchors.right: parent.right
+        anchors.verticalCenter: parent.verticalCenter
+        width: Math.max(4, Math.round(root.plotHeight * 0.45))
+        height: width
+        radius: width / 2
+        color: Color.urgent
+      }
+    }
   }
 
   Item {
@@ -484,6 +529,7 @@ BarWidget {
 
     function refresh(): void { readers.sampleAll() }
     function toggleMetric(id: string): void { root.toggleMetric(id) }
+    function toggleRecording(): void { root.toggleRecording() }
     function open(): void { root.open() }
     function close(): void { root.close() }
     function toggle(): void { root.togglePanel() }

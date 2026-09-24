@@ -8,6 +8,20 @@ nothing has needed a major bump yet.
 
 ### Added
 
+- **CPU power and GPU power**: package watts from RAPL and card watts from
+  amdgpu's power sensor, each its own metric — gauge, popup section and log
+  column (`cpu_w`, `gpu_w`).
+  RAPL is root-only by default; the README has the udev rule that opens it, and
+  the popup says so instead of showing a bare dash.
+
+- **Recording.** A rec button in the popup logs the readings you choose (a red
+  marker per section heading) to zstd-compressed CSV under
+  `$XDG_STATE_HOME/omarchy-sysmetrics/logs/`, plus the top processes by CPU and
+  memory every 30 seconds, with their CPU seconds per window — enough to answer
+  "what ran hot today, and which process did it". Rows go down a pipe to one
+  long-lived `zstd`, so a tick costs no fork. The strip shows a red dot while a
+  recording runs. New config keys: `logMetrics`, `recording`.
+
 - **`showSparkline`** joins `showIcon` and `showValue`, so the strip can drop the
   plots and keep the readouts — `cpu 46%` as plain text next to the clock, with no
   patching of `BarWidget.qml`. The three toggles are independent; turning all of them
@@ -18,6 +32,14 @@ nothing has needed a major bump yet.
 
 - **Top-process lists for CPU and memory**, collapsed by default in the popup, so the
   question the gauges raise — *what is doing this?* — is answered in the same place.
+
+### Fixed
+
+- The process lists silently lost most of their rows whenever a process exited
+  mid-sweep: gawk treats a vanished `/proc/<pid>/stat` as fatal and stopped
+  there, dropping every pid after it. On a busy machine — and this plugin's own
+  readers start and exit short-lived processes every tick — that was most
+  sweeps. The files are now walked by `head`, which skips a vanished one.
 
 ## 1.3.0 — 2026-08-29
 

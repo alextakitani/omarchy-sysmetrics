@@ -47,6 +47,10 @@ oversized="$tmp/oversized"
 yes "eth0: 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16" 2>/dev/null | head -c 400000 >"$oversized"
 export SYSMETRICS_OVERSIZED_FIXTURE="$oversized"
 
+# The recording checks write their log here rather than into the real state
+# dir.
+export XDG_STATE_HOME="$tmp/state"
+
 log="$tmp/quickshell.log"
 # Offscreen: the paint-count checks need something that actually renders, and
 # this keeps that off the user's desktop -- nothing is mapped, focused or

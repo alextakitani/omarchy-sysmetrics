@@ -27,7 +27,8 @@ run_layer() {
 }
 
 run_layer "unit (node)" node --test tests/parsers.test.js tests/engine.test.js \
-                                    tests/format.test.js tests/config.test.js
+                                    tests/format.test.js tests/config.test.js \
+                                    tests/log.test.js
 
 if [ -x /usr/lib/qt6/bin/qmltestrunner ]; then
   # Qt calls qFatal() if it cannot build an event dispatcher, so with no

@@ -19,6 +19,14 @@ ColumnLayout {
   property bool pinned: false
   signal pinToggled()
   property bool headerHovered: false
+
+  // Whether this section's reading goes into a recording. Independent of the
+  // pin: what you watch on the bar and what you want on disk for later are
+  // different questions. Any section with a metric can be logged; the process
+  // lists opt in by setting `loggable` themselves.
+  property bool loggable: metricId !== ""
+  property bool logged: false
+  signal logToggled()
   default property alias content: contentColumn.children
 
   // Collapsible sections carry a disclosure caret instead of a pin dot, and
@@ -106,6 +114,33 @@ ColumnLayout {
       font.family: Style.font.family
       font.pixelSize: Style.font.caption
       horizontalAlignment: Text.AlignRight
+    }
+
+    // The log marker: red when this reading is recorded, a faint ring when it
+    // is not. It is the one part of the header with its own hit area, so the
+    // rest of the row still pins or expands. Red, and on the far side from
+    // the pin dot, so the two are never mistaken for each other.
+    Rectangle {
+      visible: root.loggable
+      Layout.leftMargin: Style.space(6)
+      implicitWidth: Style.space(7)
+      implicitHeight: Style.space(7)
+      radius: width / 2
+      color: root.logged ? Color.urgent : "transparent"
+      border.width: root.logged ? 0 : 1
+      border.color: logMouse.containsMouse ? Color.urgent : Util.alpha(Color.muted, 0.7)
+      opacity: logMouse.containsMouse || root.logged ? 1 : 0.55
+
+      MouseArea {
+        id: logMouse
+        anchors.fill: parent
+        // A 7px target is too small to hit reliably; the margin widens it
+        // without moving anything.
+        anchors.margins: -Style.space(5)
+        hoverEnabled: true
+        cursorShape: Qt.PointingHandCursor
+        onClicked: root.logToggled()
+      }
     }
   }
   }

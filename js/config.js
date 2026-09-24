@@ -13,9 +13,14 @@ var MAX_DEVICE_NAME = 64;    // matches MAX_NAME in parsers.js
 // throws -- an invalid setting silently falls back to its default rather
 // than crashing the plugin at load time.
 
-var METRIC_IDS = ["cpu", "cputemp", "memory", "gpu", "vram", "gputemp", "network", "disk", "storage"];
+var METRIC_IDS = ["cpu", "cputemp", "cpupower", "memory", "gpu", "vram", "gputemp", "gpupower", "network", "disk", "storage"];
 
 var DEFAULT_METRICS = ["cpu", "memory"];
+
+// What the recorder can log: every metric, plus the process lists, which
+// cannot be pinned to the bar but are what a log is read for afterwards --
+// "which process caused that".
+var LOG_IDS = METRIC_IDS.concat(["processes"]);
 
 var DEFAULTS = {
     metrics: DEFAULT_METRICS,
@@ -55,7 +60,8 @@ function cloneArray(arr) {
 // Normalize the `metrics` field: accept a single string or an array,
 // drop unknown ids, preserve order, dedupe, and fall back to the default
 // set when the result would otherwise be empty.
-function normalizeMetrics(raw) {
+function normalizeMetrics(raw, allowedIds) {
+    var allowed = allowedIds || METRIC_IDS;
     var list;
 
     if (typeof raw === "string") {
@@ -71,11 +77,11 @@ function normalizeMetrics(raw) {
         var id = list[i];
         if (typeof id !== "string") continue;
 
-        var known = false;
-        for (var m = 0; m < METRIC_IDS.length; m++) {
-            if (METRIC_IDS[m] === id) { known = true; break; }
+        var isKnown = false;
+        for (var m = 0; m < allowed.length; m++) {
+            if (allowed[m] === id) { isKnown = true; break; }
         }
-        if (!known) continue;
+        if (!isKnown) continue;
 
         var already = false;
         for (var j = 0; j < out.length; j++) {
@@ -209,8 +215,14 @@ function normalizeTemperature(raw) {
 function normalizeConfig(raw) {
     var cfg = raw && typeof raw === "object" ? raw : {};
 
+    var metrics = normalizeMetrics(cfg.metrics);
+
     var result = {
-        metrics: normalizeMetrics(cfg.metrics),
+        metrics: metrics,
+        // Until the user picks what to log, a recording logs what is on the
+        // bar -- the metrics they already said they care about.
+        recording: normalizeBool(cfg.recording, false),
+        logMetrics: cfg.logMetrics === undefined ? cloneArray(metrics) : normalizeMetrics(cfg.logMetrics, LOG_IDS),
         intervalMs: isFiniteNumber(cfg.intervalMs) ? clamp(cfg.intervalMs, 500, 60000) : DEFAULTS.intervalMs,
         historyLength: isFiniteNumber(cfg.historyLength) ? clamp(Math.floor(cfg.historyLength), 10, 300) : DEFAULTS.historyLength,
         sparklineWidth: isFiniteNumber(cfg.sparklineWidth) ? clamp(Math.floor(cfg.sparklineWidth), 12, 200) : DEFAULTS.sparklineWidth,
@@ -243,6 +255,8 @@ if (typeof module === "object" && typeof module.exports === "object") {
         clamp: clamp,
         isFiniteNumber: isFiniteNumber,
         cloneArray: cloneArray,
+        METRIC_IDS: METRIC_IDS,
+        LOG_IDS: LOG_IDS,
         normalizeMetrics: normalizeMetrics,
         normalizeBool: normalizeBool,
         normalizeUrgent: normalizeUrgent,

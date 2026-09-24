@@ -30,6 +30,8 @@ Item {
   readonly property bool wantGpuDevice: wantGpu || wantVram || wantGpuTemperature
   readonly property bool wantTemperature: ready && sampler.sampling("cputemp")
   readonly property bool wantGpuTemperature: ready && sampler.sampling("gputemp")
+  readonly property bool wantCpuPower: ready && sampler.sampling("cpupower")
+  readonly property bool wantGpuPower: ready && sampler.sampling("gpupower")
   // Not a `sampling()` metric: the process lists cannot be pinned to the bar,
   // so they have no `metrics` entry to consult. They are gated on their own
   // sections being expanded instead, which is stricter than popupOpen.
@@ -94,6 +96,8 @@ Item {
       storageTicks -= 1
     }
     if (wantGpuTemperature && gpuTemperatureInputPath !== "") gpuTemperatureFile.reload()
+    if (wantCpuPower) energyFile.reload()
+    if (wantGpuPower && gpuPowerPath !== "") gpuPowerFile.reload()
 
     // Popup-only detail: level readings with no history, so sampling them
     // lazily costs nothing and they are correct on the popup's first tick.
@@ -236,11 +240,11 @@ Item {
   //
   // comm is then stripped of anything outside printable ASCII: it is a string
   // the kernel accepted, not one we chose, and it ends up rendered as a label.
-  Process {
-    id: processesProcess
-    command: ["sh", "-c",
+  //
+  // Exposed so the recorder runs the same sweep on its own, slower cadence.
+  readonly property string processSweepScript:
               "getconf PAGESIZE; " +
-              "(awk 'FNR==1{" +
+              "(head -qn1 /proc/[0-9]*/stat 2>/dev/null | awk '{" +
               "line=$0; cp=0;" +
               "for(i=length(line);i>0;i--){if(substr(line,i,1)==\")\"){cp=i;break}}" +
               "if(cp==0)next;" +
@@ -251,12 +255,18 @@ Item {
               "n=split(rest,f,\" \"); if(n<22)next;" +
               "gsub(/[^ -~]/,\"?\",comm);" +
               "print pid, (f[12]+f[13]), f[22], comm" +
-              // A pid that exits between the glob expanding and awk opening
-              // its file makes awk exit non-zero -- on a busy machine, most
-              // sweeps. The output is complete regardless (every other file
-              // was read and printed), so the status is discarded rather than
-              // allowed to look like a failed read to anything downstream.
-              "}' /proc/[0-9]*/stat 2>/dev/null || true) | head -c 262144"]
+              // head walks the files, not awk: a pid that exits between the
+              // glob expanding and its file being opened is FATAL to gawk,
+              // which then dropped every pid after it -- routinely, since this
+              // plugin's own `head` readers come and go on every tick. head
+              // reports the missing file and moves on. -n1 keeps only each
+              // file's first line, as FNR==1 did, so a comm with an embedded
+              // newline cannot spill a forged second row into the output.
+              "}' || true) | head -c 262144"
+
+  Process {
+    id: processesProcess
+    command: ["sh", "-c", readers.processSweepScript]
     stdout: StdioCollector {
       waitForEnd: true
       onStreamFinished: {
@@ -502,9 +512,27 @@ Item {
     }
   }
 
+  // The GPU's power sensor lives on the same hwmon as its temperature, but is
+  // resolved on its own: gputemp.sensor may name a different chip entirely.
+  property string gpuPowerPath: ""
+
+  function resolveGpuPowerSensor() {
+    var drivers = ["amdgpu", "nouveau"]
+    for (var d = 0; d < drivers.length; d++) {
+      for (var key in hwmonNames) {
+        if (hwmonNames[key] === drivers[d]) {
+          gpuPowerPath = "/sys/class/hwmon/" + key + "/power1_average"
+          sampler.hasGpuPowerSensor = true
+          return
+        }
+      }
+    }
+  }
+
   onHwmonNamesChanged: {
     resolveTemperatureSensor()
     resolveGpuTemperatureSensor()
+    resolveGpuPowerSensor()
   }
 
   FileView {
@@ -513,6 +541,50 @@ Item {
     watchChanges: false
     printErrors: false
     onLoaded: if (readers.ready) readers.sampler.applyTemperature(readers.boundedText(this))
+  }
+
+  // ---- Power -------------------------------------------------------------
+  //
+  // intel-rapl:0 is the package domain on AMD as well as Intel: the kernel's
+  // amd RAPL support registers under the same powercap name. energy_uj is
+  // mode 0400 unless a udev rule opens it (see README), and a refused read is
+  // retried every tick rather than given up on, so granting access takes
+  // effect without restarting the shell. A failed open is one syscall.
+  FileView {
+    id: energyFile
+    path: "/sys/class/powercap/intel-rapl:0/energy_uj"
+    watchChanges: false
+    printErrors: false
+    // Only on a sampling tick: the load FileView does by itself when it is
+    // created would otherwise commit a sample nobody asked for.
+    onLoaded: if (readers.ready && readers.wantCpuPower) readers.sampler.applyCpuEnergy(readers.boundedText(this))
+    onLoadFailed: if (readers.ready && readers.wantCpuPower) readers.sampler.cpuEnergyUnreadable()
+  }
+
+  // World-readable, and fixed for the life of the machine: read once.
+  FileView {
+    id: energyRangeFile
+    path: "/sys/class/powercap/intel-rapl:0/max_energy_range_uj"
+    watchChanges: false
+    printErrors: false
+    blockLoading: true
+    Component.onCompleted: if (readers.ready) readers.sampler.energyRangeUj = Parsers.parseFirstNumber(readers.boundedText(this))
+  }
+
+  // Newer amdgpu kernels report the instantaneous power1_input instead of the
+  // averaged power1_average, so a missing average falls back to it once.
+  FileView {
+    id: gpuPowerFile
+    path: readers.gpuPowerPath
+    watchChanges: false
+    printErrors: false
+    onLoaded: if (readers.ready && readers.wantGpuPower) readers.sampler.applyGpuPower(readers.boundedText(this))
+    onLoadFailed: {
+      if (!readers.ready) return
+      if (readers.gpuPowerPath.endsWith("/power1_average"))
+        readers.gpuPowerPath = readers.gpuPowerPath.replace(/power1_average$/, "power1_input")
+      else readers.sampler.hasGpuPowerSensor = false
+    }
   }
 
   FileView {

@@ -148,6 +148,24 @@ function rateBetween(prevBytes, currBytes, dtMs) {
     return delta / seconds;
 }
 
+// Watts from two readings of a cumulative energy counter in microjoules, such
+// as RAPL's energy_uj. The counter wraps at `rangeUj` (max_energy_range_uj),
+// which a busy package reaches in hours, so a backwards step is a wrap to be
+// unwound -- not a reset -- whenever the range is known.
+function powerFromEnergy(prevUj, currUj, dtMs, rangeUj) {
+    if (typeof prevUj !== "number" || !isFinite(prevUj)) return null;
+    if (typeof currUj !== "number" || !isFinite(currUj)) return null;
+    if (typeof dtMs !== "number" || !isFinite(dtMs) || dtMs <= 0) return null;
+
+    var delta = currUj - prevUj;
+    if (delta < 0) {
+        if (typeof rangeUj !== "number" || !isFinite(rangeUj) || rangeUj < prevUj) return null;
+        delta += rangeUj;
+    }
+    // uJ per ms is mW.
+    return delta / dtMs / 1000;
+}
+
 // Max across all arrays of values, ignoring NaN, but never below `floor`.
 // Used to derive a sane graph ceiling for rate-based metrics (network,
 // disk) where an all-zero history would otherwise produce a 0 ceiling and
@@ -218,6 +236,7 @@ if (typeof module === "object" && typeof module.exports === "object") {
         ringMax: ringMax,
         cpuBusyPercent: cpuBusyPercent,
         rateBetween: rateBetween,
+        powerFromEnergy: powerFromEnergy,
         rollingCeiling: rollingCeiling,
         normalizeLevel: normalizeLevel,
         emphasize: emphasize

@@ -151,6 +151,13 @@ function formatAge(seconds) {
     return Math.floor(m / 60) + "h ago";
 }
 
+// "8.5W", "123W". One decimal only below ten, where it still means something,
+// so the widest output is the "888W" the bar's label template reserves.
+function formatWatts(n) {
+    if (isBadNumber(n) || n < 0) return DASH;
+    return (n < 9.95 ? n.toFixed(1) : String(Math.round(n))) + "W";
+}
+
 // Exported for the test suite. QML has no `module`, so this block is inert
 // there and `.pragma library` still applies; Node reads it as an ordinary
 // CommonJS module, which is what lets every function above be tested without
@@ -170,6 +177,7 @@ if (typeof module === "object" && typeof module.exports === "object") {
         formatTempShort: formatTempShort,
         formatTempFull: formatTempFull,
         formatUptime: formatUptime,
-        formatAge: formatAge
+        formatAge: formatAge,
+        formatWatts: formatWatts
     };
 }

@@ -15,6 +15,7 @@ Ui.Panel {
   property var anchorItem: null
   property var hostWidget: null
   property QtObject sampler: null
+  property QtObject recorder: null
   readonly property var barIdentity: hostWidget || root
 
   readonly property var metrics: sampler ? sampler.config.metrics : []
@@ -44,7 +45,7 @@ Ui.Panel {
   // Every section is shown whether or not its metric is on the bar: the popup
   // is where the strip is configured, so a metric you have hidden still has
   // to be reachable to bring back.
-  readonly property var sectionOrder: ["cpu", "cputemp", "memory", "gpu", "vram", "gputemp", "storage", "network", "disk"]
+  readonly property var sectionOrder: ["cpu", "cputemp", "memory", "gpu", "vram", "gputemp", "storage", "network", "disk", "cpupower", "gpupower"]
 
   // The first section skips its separator, so the popup does not open with a
   // rule floating above its first heading.
@@ -93,6 +94,20 @@ Ui.Panel {
     if (!hostWidget || typeof hostWidget.setInterval !== "function") return
     var current = sampler ? sampler.config.intervalMs : 2000
     hostWidget.setInterval(current + delta)
+  }
+
+  function isLogged(id) {
+    return sampler ? sampler.config.logMetrics.indexOf(id) >= 0 : false
+  }
+
+  function toggleLogged(id) {
+    if (hostWidget && typeof hostWidget.toggleLogged === "function")
+      hostWidget.toggleLogged(id)
+  }
+
+  function toggleRecording() {
+    if (hostWidget && typeof hostWidget.toggleRecording === "function")
+      hostWidget.toggleRecording()
   }
 
   function togglePin(id) {
@@ -160,7 +175,61 @@ Ui.Panel {
               }
             }
 
+            // Start/stop a recording. While one runs it shows how long it
+            // has been going; which readings it logs is chosen by the red
+            // markers on the section headings below.
+            Rectangle {
+              id: recButton
+              readonly property bool recording: root.recorder ? root.recorder.active : false
+              anchors.right: refreshRow.left
+              anchors.rightMargin: Style.space(10)
+              anchors.verticalCenter: parent.verticalCenter
+              width: recRow.implicitWidth + Style.space(10)
+              height: Style.space(20)
+              radius: Style.space(4)
+              color: recButton.recording
+                ? Util.alpha(Color.urgent, 0.15)
+                : (recMouse.containsMouse ? Util.alpha(Color.muted, 0.18) : "transparent")
+              border.width: recButton.recording ? 1 : 0
+              border.color: Util.alpha(Color.urgent, 0.5)
+
+              Row {
+                id: recRow
+                anchors.centerIn: parent
+                spacing: Style.space(4)
+
+                Rectangle {
+                  anchors.verticalCenter: parent.verticalCenter
+                  width: Style.space(7)
+                  height: Style.space(7)
+                  radius: width / 2
+                  color: recButton.recording ? Color.urgent : "transparent"
+                  border.width: recButton.recording ? 0 : 1
+                  border.color: Color.muted
+                }
+
+                Text {
+                  anchors.verticalCenter: parent.verticalCenter
+                  text: recButton.recording
+                    ? Format.formatUptime(root.recorder.elapsedMs / 1000)
+                    : "rec"
+                  color: recButton.recording ? Color.urgent : Color.muted
+                  font.family: Style.font.family
+                  font.pixelSize: Style.font.caption
+                }
+              }
+
+              MouseArea {
+                id: recMouse
+                anchors.fill: parent
+                hoverEnabled: true
+                cursorShape: Qt.PointingHandCursor
+                onClicked: root.toggleRecording()
+              }
+            }
+
             Row {
+              id: refreshRow
               anchors.right: pinButton.left
               anchors.rightMargin: Style.space(6)
               anchors.verticalCenter: parent.verticalCenter
@@ -251,6 +320,8 @@ Ui.Panel {
             metricId: "cpu"
             pinned: root.hasMetric("cpu")
             onPinToggled: root.togglePin("cpu")
+            logged: root.isLogged("cpu")
+            onLogToggled: root.toggleLogged("cpu")
           }
 
           // Directly under the CPU charts it breaks down: the graph says the
@@ -265,6 +336,9 @@ Ui.Panel {
             id: topCpuSection
             width: parent.width
             sampler: root.sampler
+            loggable: true
+            logged: root.isLogged("processes")
+            onLogToggled: root.toggleLogged("processes")
           }
 
           Detail.MemoryDetail {
@@ -274,6 +348,8 @@ Ui.Panel {
             metricId: "memory"
             pinned: root.hasMetric("memory")
             onPinToggled: root.togglePin("memory")
+            logged: root.isLogged("memory")
+            onLogToggled: root.toggleLogged("memory")
           }
 
           // Same idea as the CPU list above, under the meters it breaks down.
@@ -283,6 +359,9 @@ Ui.Panel {
             id: topMemorySection
             width: parent.width
             sampler: root.sampler
+            loggable: true
+            logged: root.isLogged("processes")
+            onLogToggled: root.toggleLogged("processes")
           }
 
           Detail.GpuDetail {
@@ -292,6 +371,8 @@ Ui.Panel {
             metricId: "gpu"
             pinned: root.hasMetric("gpu")
             onPinToggled: root.togglePin("gpu")
+            logged: root.isLogged("gpu")
+            onLogToggled: root.toggleLogged("gpu")
           }
 
           Detail.VramDetail {
@@ -301,6 +382,8 @@ Ui.Panel {
             metricId: "vram"
             pinned: root.hasMetric("vram")
             onPinToggled: root.togglePin("vram")
+            logged: root.isLogged("vram")
+            onLogToggled: root.toggleLogged("vram")
           }
 
           Detail.StorageDetail {
@@ -310,6 +393,8 @@ Ui.Panel {
             metricId: "storage"
             pinned: root.hasMetric("storage")
             onPinToggled: root.togglePin("storage")
+            logged: root.isLogged("storage")
+            onLogToggled: root.toggleLogged("storage")
           }
 
           Detail.NetworkDetail {
@@ -319,6 +404,8 @@ Ui.Panel {
             metricId: "network"
             pinned: root.hasMetric("network")
             onPinToggled: root.togglePin("network")
+            logged: root.isLogged("network")
+            onLogToggled: root.toggleLogged("network")
           }
 
           Detail.DiskDetail {
@@ -328,6 +415,8 @@ Ui.Panel {
             metricId: "disk"
             pinned: root.hasMetric("disk")
             onPinToggled: root.togglePin("disk")
+            logged: root.isLogged("disk")
+            onLogToggled: root.toggleLogged("disk")
           }
 
           Detail.TemperatureDetail {
@@ -337,6 +426,20 @@ Ui.Panel {
             metricId: "cputemp"
             pinned: root.hasMetric("cputemp")
             onPinToggled: root.togglePin("cputemp")
+            logged: root.isLogged("cputemp")
+            onLogToggled: root.toggleLogged("cputemp")
+          }
+
+          Detail.PowerDetail {
+            width: parent.width
+            device: "cpu"
+            showSeparator: !root.isFirstVisible("cpupower")
+            sampler: root.sampler
+            metricId: "cpupower"
+            pinned: root.hasMetric("cpupower")
+            onPinToggled: root.togglePin("cpupower")
+            logged: root.isLogged("cpupower")
+            onLogToggled: root.toggleLogged("cpupower")
           }
 
           Detail.GpuTemperatureDetail {
@@ -346,7 +449,22 @@ Ui.Panel {
             metricId: "gputemp"
             pinned: root.hasMetric("gputemp")
             onPinToggled: root.togglePin("gputemp")
+            logged: root.isLogged("gputemp")
+            onLogToggled: root.toggleLogged("gputemp")
           }
+
+          Detail.PowerDetail {
+            width: parent.width
+            device: "gpu"
+            showSeparator: !root.isFirstVisible("gpupower")
+            sampler: root.sampler
+            metricId: "gpupower"
+            pinned: root.hasMetric("gpupower")
+            onPinToggled: root.togglePin("gpupower")
+            logged: root.isLogged("gpupower")
+            onLogToggled: root.toggleLogged("gpupower")
+          }
+
         }
       }
     }

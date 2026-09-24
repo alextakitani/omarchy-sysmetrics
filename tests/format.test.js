@@ -117,3 +117,20 @@ describe('rates', () => {
     assert.ok(/\/s$/.test(F.formatRateFull(1048576)))
   })
 })
+
+describe('formatWatts', () => {
+  it('keeps a decimal only below ten', () => {
+    assert.equal(F.formatWatts(8.54), '8.5W')
+    assert.equal(F.formatWatts(9.96), '10W')
+    assert.equal(F.formatWatts(123.4), '123W')
+  })
+
+  it('never outgrows the 888W label template', () => {
+    for (const w of [0, 0.04, 9.94, 9.95, 99.5, 999]) assert.ok(F.formatWatts(w).length <= 4, w)
+  })
+
+  it('dashes a missing reading', () => {
+    assert.equal(F.formatWatts(NaN), F.DASH)
+    assert.equal(F.formatWatts(-1), F.DASH)
+  })
+})

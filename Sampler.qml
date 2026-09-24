@@ -48,6 +48,8 @@ QtObject {
   property int cputempRevision: 0
   property int gputempRevision: 0
   property int processesRevision: 0
+  property int cpupowerRevision: 0
+  property int gpupowerRevision: 0
 
   // The repaint dependency for one metric. A view that draws a single metric
   // states this rather than `revision`, so it is invalidated only by its own
@@ -63,6 +65,8 @@ QtObject {
     if (id === "cputemp") return cputempRevision
     if (id === "gputemp") return gputempRevision
     if (id === "processes") return processesRevision
+    if (id === "cpupower") return cpupowerRevision
+    if (id === "gpupower") return gpupowerRevision
     return revision
   }
 
@@ -73,12 +77,16 @@ QtObject {
     return config.metrics.indexOf(id) >= 0
   }
 
+  // The ids a recording in progress is logging; empty when nothing records.
+  property var recording: []
+
   // Worth sampling right now. A metric that is not on the bar still has a
   // section in the popup, and that section is useless without live data — so
   // while the popup is open everything is sampled, not just the pinned set.
-  // Closed, only the pinned metrics cost anything.
+  // Closed, only the pinned metrics cost anything -- plus whatever is being
+  // recorded, since a log with the popup shut is the whole point of one.
   function sampling(id) {
-    return popupOpen || enabled(id)
+    return popupOpen || enabled(id) || recording.indexOf(id) >= 0
   }
 
   // ---- CPU ---------------------------------------------------------------
@@ -360,6 +368,66 @@ QtObject {
     updated("gputemp")
   }
 
+  // ---- Power -------------------------------------------------------------
+  //
+  // Two sources, read very differently. The CPU package reports a cumulative
+  // energy counter (RAPL energy_uj), so its power is a delta over time, like a
+  // byte counter. The GPU reports power directly (amdgpu's power1_average, in
+  // microwatts). RAPL is root-only by default, so the CPU half may simply be
+  // unreadable; `cpuPowerReadable` lets the popup say why rather than show a
+  // bare dash.
+  //
+  // Two metrics, not one total: the question is which device is drawing, and
+  // a sum hides exactly that. Each pins, plots and logs on its own.
+
+  property real cpuPower: NaN
+  property real gpuPower: NaN
+  property bool cpuPowerReadable: true
+  property real energyRangeUj: NaN
+  property var cpuPowerHistory: Engine.makeRing(60)
+  property var gpuPowerHistory: Engine.makeRing(60)
+  property real previousEnergyUj: NaN
+  property real previousEnergyAt: 0
+  // Set by discovery, so the GPU section can be hidden on a machine without
+  // the sensor rather than flashing in on its first reading.
+  property bool hasGpuPowerSensor: false
+
+  function applyCpuEnergy(text) {
+    var uj = Parsers.parseFirstNumber(text)
+    var now = Date.now()
+    var watts = Engine.powerFromEnergy(previousEnergyUj, uj, now - previousEnergyAt, energyRangeUj)
+    cpuPower = watts === null ? NaN : watts
+    previousEnergyUj = uj
+    previousEnergyAt = now
+    cpuPowerReadable = true
+    recordCpuPower()
+  }
+
+  // A refused read also drops the baseline: once access is granted, the first
+  // good reading must not be differenced against one from before.
+  function cpuEnergyUnreadable() {
+    cpuPower = NaN
+    previousEnergyUj = NaN
+    cpuPowerReadable = false
+    recordCpuPower()
+  }
+
+  function applyGpuPower(text) {
+    var microwatts = Parsers.parseFirstNumber(text)
+    gpuPower = isFinite(microwatts) && microwatts >= 0 ? microwatts / 1e6 : NaN
+    Engine.ringPush(gpuPowerHistory, gpuPower)
+    gpupowerRevision += 1
+    revision += 1
+    updated("gpupower")
+  }
+
+  function recordCpuPower() {
+    Engine.ringPush(cpuPowerHistory, cpuPower)
+    cpupowerRevision += 1
+    revision += 1
+    updated("cpupower")
+  }
+
   // ---- Processes ---------------------------------------------------------
   // Popup-only, and only while its sections are expanded: a full sweep of
   // /proc is the most expensive read here, and nobody is looking at a list
@@ -460,6 +528,8 @@ QtObject {
     vramHistory = Engine.makeRing(size)
     temperatureHistory = Engine.makeRing(size)
     gpuTemperatureHistory = Engine.makeRing(size)
+    cpuPowerHistory = Engine.makeRing(size)
+    gpuPowerHistory = Engine.makeRing(size)
   }
 
   // Guarded on the size, not on the config object. Every write to `settings`

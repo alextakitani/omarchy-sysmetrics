@@ -164,3 +164,25 @@ describe('the sampling floor stays below the fastest allowed interval', () => {
       'interval of ' + fastest + 'ms')
   })
 })
+
+describe('log selection', () => {
+  it('logs what is on the bar until the user chooses', () => {
+    assert.deepEqual(C.normalizeConfig({ metrics: ['gpu'] }).logMetrics, ['gpu'])
+  })
+
+  it('accepts the process lists, which cannot be pinned', () => {
+    assert.deepEqual(C.normalizeConfig({ logMetrics: ['processes', 'cputemp', 'nope'] }).logMetrics,
+      ['processes', 'cputemp'])
+    assert.deepEqual(C.normalizeConfig({ metrics: ['processes'] }).metrics, [])
+  })
+
+  it('keeps an explicitly empty selection empty', () => {
+    assert.deepEqual(C.normalizeConfig({ logMetrics: [] }).logMetrics, [])
+  })
+
+  it('does not record unless asked', () => {
+    assert.equal(C.normalizeConfig({}).recording, false)
+    assert.equal(C.normalizeConfig({ recording: 'yes' }).recording, false)
+    assert.equal(C.normalizeConfig({ recording: true }).recording, true)
+  })
+})

@@ -16,7 +16,7 @@ jobs:
         with:
           node-version: '22'
       - name: Unit tests
-        run: node --test tests/parsers.test.js tests/engine.test.js tests/format.test.js tests/config.test.js
+        run: node --test tests/parsers.test.js tests/engine.test.js tests/format.test.js tests/config.test.js tests/log.test.js
 
   engine:
     # The same contract under Qt's V4 engine. Qt is available from apt, so

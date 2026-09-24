@@ -172,6 +172,30 @@ ShellRoot {
                  "showSparkline": false, "showValue": false })
   }
 
+  // ---- Recording ---------------------------------------------------------
+  //
+  // A real recording through the real writer: zstd over a pipe, into the temp
+  // state dir the harness script points XDG_STATE_HOME at. Stopped before the
+  // end, because zstd only finishes the file once its input closes.
+  Plugin.BarWidget {
+    id: recordingGauge
+    settings: ({ "metrics": ["cpu"], "intervalMs": 500, "recording": true,
+                 "logMetrics": ["cpu", "gputemp", "processes"] })
+  }
+
+  property string recordedText: ""
+
+  Process {
+    id: recordedReader
+    command: ["sh", "-c",
+              "cd \"$1\" && ls | wc -l && for f in *-metrics.csv.zst *-processes.csv.zst; do zstd -dc \"$f\"; done",
+              "sh", (Quickshell.env("XDG_STATE_HOME") || "/nonexistent") + "/omarchy-sysmetrics/logs"]
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: harness.recordedText = text
+    }
+  }
+
   // Snapshots taken while the popup is shut, compared after it opens.
   property int netRevWhileClosed: 0
   property int uptimeWhileClosed: 0
@@ -237,6 +261,9 @@ ShellRoot {
       if (harness.ticks === 10 && sampler.topCpuProcesses.length > 0)
         harness.firstSweepCpu = sampler.topCpuProcesses[0].cpuPercent
 
+      if (harness.ticks === 11) recordingGauge.toggleRecording()
+      if (harness.ticks === 13) recordedReader.running = true
+
       if (harness.ticks < 14) return
       running = false
       harness.report()
@@ -272,6 +299,11 @@ ShellRoot {
     check("revisionOf routes memory", sampler.revisionOf("memory") === sampler.memoryRevision)
     check("revisionOf routes network", sampler.revisionOf("network") === sampler.networkRevision)
     check("revisionOf routes storage", sampler.revisionOf("storage") === sampler.storageRevision)
+    check("revisionOf routes cpu power", sampler.revisionOf("cpupower") === sampler.cpupowerRevision)
+    check("revisionOf routes gpu power", sampler.revisionOf("gpupower") === sampler.gpupowerRevision)
+    // Unpinned, so it samples only once the popup opens -- and a refused RAPL
+    // read must still commit a sample, or the chart would never advance.
+    check("cpu power committed samples once the popup opened", sampler.cpupowerRevision > 0)
     check("revisionOf falls back for an unknown id",
           sampler.revisionOf("nonsense") === sampler.revision)
 
@@ -420,6 +452,18 @@ ShellRoot {
           !verticalGauge.showsPlaceholder)
     check("and still anchors the popup to that label",
           verticalGauge.openPanelIndicatorWidth > 0)
+
+    // ---- recording -------------------------------------------------------
+    var recorded = harness.recordedText.split("\n")
+    // Two files, not four: a start raised twice at load once raced a second
+    // session onto the same file name, and zstd refused it -- an empty log.
+    check("a recording writes one metrics and one processes file", recorded[0] === "2")
+    // Rows written while the writer was still starting once landed first.
+    check("the metrics header is the first line",
+          recorded[1] === "t_ms,cpu_max_pct,cpu_avg_pct,gputemp_c")
+    check("the recording has rows", recorded.length > 4 && /^\d+,/.test(recorded[2]))
+    check("the processes file has its header",
+          recorded.indexOf("t_ms,pid,comm,cpu_s,rss_bytes") > 1)
 
     for (var i = 0; i < notes.length; i++) console.warn("SYSMETRICS_CHECK " + notes[i])
 

@@ -54,7 +54,7 @@ smoke test that runs the real widget inside a real `quickshell`.
 
 ## What it shows
 
-Nine metrics, each of which you choose to show on the bar or keep in the popup:
+Eleven metrics, each of which you choose to show on the bar or keep in the popup:
 
 | Metric | On the bar | In the popup |
 |---|---|---|
@@ -67,6 +67,8 @@ Nine metrics, each of which you choose to show on the bar or keep in the popup:
 | Storage | fullest filesystem | every filesystem, used of total |
 | Network | download and upload | per-direction rates, interface |
 | Disk I/O | read and write | per-device read and write rates |
+| CPU power | package watts | watts over time |
+| GPU power | board watts | watts over time |
 
 The CPU gauge plots the **busiest core**, not the average across all of them.
 The kernel's aggregate averages every core, which hides the load people
@@ -143,6 +145,87 @@ but hide it, `omarchy plugin disable takitani.sysmetrics` instead.
 Every section is present in the popup whether or not its metric is on the bar,
 so a metric you have hidden is still reachable to bring back.
 
+### Power
+
+Two metrics, one per device, so each is pinned, plotted and logged on its own:
+**CPU power** is the package, from RAPL's energy counter, and **GPU power** is
+the card, from its driver's power sensor (`power1_average` on amdgpu). The
+rest of the board, the drives and the fans are not metered, so the two
+together are less than the draw at the wall.
+
+The GPU reading works out of the box. **The CPU package does not**: the kernel
+makes RAPL's `energy_uj` readable by root only, and the popup says so until
+you grant access. It is locked down because fine-grained energy readings can
+leak information about what other processes are computing (the PLATYPUS
+attack), which matters on a shared machine and far less on a single-user
+desktop. If that trade-off is fine for you, a udev rule opens it for reading:
+
+```bash
+echo 'ACTION=="add", SUBSYSTEM=="powercap", KERNEL=="intel-rapl:*", RUN+="/usr/bin/chmod 0444 /sys%p/energy_uj"' \
+  | sudo tee /etc/udev/rules.d/60-rapl-energy-read.rules
+sudo udevadm trigger --subsystem-match=powercap --action=add   # apply now, no reboot
+```
+
+The widget retries the read every tick, so CPU power appears within a couple
+of seconds, with no shell restart. To undo it, delete the rule and reboot.
+
+What the CPU figure covers: the RAPL *package* domain (`intel-rapl:0`), which
+is the whole processor — every core plus the shared parts of the chip (L3,
+memory controller, interconnect). Not the motherboard or its voltage
+regulators.
+
+**On AMD too, despite the name.** RAPL is an interface Intel introduced and
+AMD implements from Zen onward; the kernel serves both through its
+`intel_rapl` driver, so AMD CPUs show up as `intel-rapl` as well. On AMD the
+reading comes from the chip's own power model rather than a measurement on
+the supply rails, so it is good for trends and peaks, not metering-grade.
+
+## Recording
+
+The popup can log readings to disk for later analysis — a day's CPU and
+temperature, and which processes were behind them.
+
+- The **red marker** at the right of each section heading chooses whether that
+  reading is logged, independently of whether it is on the bar. The two
+  process lists share one marker. Until you touch them, a recording logs
+  whatever is pinned.
+- **rec** (top of the popup) starts and stops a recording. While one runs it
+  shows its duration, and the strip carries a red dot, because a recording
+  keeps its metrics sampled with the popup shut.
+- A recording survives a shell restart: it resumes into a new pair of files.
+
+Files go to `$XDG_STATE_HOME/omarchy-sysmetrics/logs/` (normally
+`~/.local/state/…`), named by start time:
+
+- `<stamp>-metrics.csv.zst` — one row per sampling tick: `t_ms` (unix ms)
+  plus the chosen columns (`cpu_max_pct`, `cpu_avg_pct`, `cputemp_c`,
+  `mem_pct`, `swap_pct`, `gpu_pct`, `vram_pct`, `gputemp_c`, `net_rx_Bps`,
+  `net_tx_Bps`, `disk_read_Bps`, `disk_write_Bps`, `storage_pct`, `cpu_w`,
+  `gpu_w`). A missing
+  reading is an empty field, not 0.
+- `<stamp>-processes.csv.zst` — every 30 seconds, the five processes that used
+  the most CPU and the five holding the most memory in that window:
+  `t_ms,pid,comm,cpu_s,rss_bytes`. `cpu_s` is CPU time spent *in that window*,
+  so summing it gives each process's total.
+
+Each file is written by one long-lived `zstd` fed over a pipe, so a tick costs
+one line written to a pipe — no fork, no file reopened. At the default
+interval that is roughly 650 KB a day. zstd writes in blocks, so a running
+recording's file lags behind by a few minutes; it is complete once stopped.
+The process sweep is the only fork, once per window.
+
+Reading it back, for example with DuckDB:
+
+```sql
+-- temperature over the day
+SELECT avg(cputemp_c), max(cputemp_c), quantile_cont(cputemp_c, 0.95)
+FROM 'logs/*-metrics.csv.zst';
+
+-- who burned the CPU
+SELECT comm, round(sum(cpu_s) / 60, 1) AS cpu_minutes
+FROM 'logs/*-processes.csv.zst' GROUP BY comm ORDER BY 2 DESC LIMIT 10;
+```
+
 ## Configuration
 
 The popup covers the common cases (which metrics show, how often they refresh),
@@ -153,6 +236,8 @@ want to the widget's entry in `~/.config/omarchy/shell.json`:
 {
   "id": "takitani.sysmetrics",
   "metrics": ["cpu", "memory"],   // any subset, in any order
+  "logMetrics": ["cpu", "cputemp", "processes"],  // what a recording logs
+  "recording": false,             // the rec button; persisted across restarts
   "intervalMs": 2000,             // 500–60000 (the popup stepper goes to 15000)
   "historyLength": 60,            // samples kept per metric
   "sparklineWidth": 34,           // px per gauge plot, 12–200
