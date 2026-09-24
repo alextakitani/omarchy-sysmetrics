@@ -96,7 +96,10 @@ Item {
       storageTicks -= 1
     }
     if (wantGpuTemperature && gpuTemperatureInputPath !== "") gpuTemperatureFile.reload()
-    if (wantCpuPower) energyFile.reload()
+    if (wantCpuPower) {
+      energyRequested = true
+      energyFile.reload()
+    }
     if (wantGpuPower && gpuPowerPath !== "") gpuPowerFile.reload()
 
     // Popup-only detail: level readings with no history, so sampling them
@@ -137,6 +140,7 @@ Item {
   }
 
   property int routeTicks: 0
+  property bool energyRequested: false
   property int storageTicks: 0
 
   // Ticks the current df run has been outstanding, and the ceiling past which
@@ -555,10 +559,22 @@ Item {
     path: "/sys/class/powercap/intel-rapl:0/energy_uj"
     watchChanges: false
     printErrors: false
-    // Only on a sampling tick: the load FileView does by itself when it is
-    // created would otherwise commit a sample nobody asked for.
-    onLoaded: if (readers.ready && readers.wantCpuPower) readers.sampler.applyCpuEnergy(readers.boundedText(this))
-    onLoadFailed: if (readers.ready && readers.wantCpuPower) readers.sampler.cpuEnergyUnreadable()
+    // Only reads a tick asked for. A FileView also loads by itself the moment
+    // it gets its path, and that load used to become the energy baseline with
+    // the first tick's read milliseconds behind it -- a small delta over a
+    // tiny interval, logged as hundreds of watts on every shell start. Power
+    // from a counter is only as good as the interval it is measured over, so
+    // that interval has to be the sampling one.
+    onLoaded: {
+      if (!readers.ready || !readers.energyRequested) return
+      readers.energyRequested = false
+      readers.sampler.applyCpuEnergy(readers.boundedText(this))
+    }
+    onLoadFailed: {
+      if (!readers.ready || !readers.energyRequested) return
+      readers.energyRequested = false
+      readers.sampler.cpuEnergyUnreadable()
+    }
   }
 
   // World-readable, and fixed for the life of the machine: read once.

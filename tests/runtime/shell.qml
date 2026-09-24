@@ -172,6 +172,21 @@ ShellRoot {
                  "showSparkline": false, "showValue": false })
   }
 
+  // CPU power pinned, so its reader is wanted from the moment it exists. The
+  // FileView's own load on creation used to be taken as the energy baseline,
+  // with the first tick's read a few milliseconds behind it: a small energy
+  // delta over a tiny interval, logged as hundreds of watts on every shell
+  // start. Skipped where RAPL is unreadable, which is most CI.
+  Plugin.Sampler {
+    id: powerSampler
+    config: Config.normalizeConfig({ "metrics": ["cpupower"] })
+  }
+
+  Plugin.Readers {
+    id: powerReaders
+    sampler: powerSampler
+  }
+
   // ---- Recording ---------------------------------------------------------
   //
   // A real recording through the real writer: zstd over a pipe, into the temp
@@ -216,6 +231,7 @@ ShellRoot {
 
     onTriggered: {
       readers.sampleAll()
+      powerReaders.sampleAll()
       harness.ticks += 1
 
       // Fire the producer-bounded read once, sampling RSS either side of it.
@@ -304,6 +320,16 @@ ShellRoot {
     // Unpinned, so it samples only once the popup opens -- and a refused RAPL
     // read must still commit a sample, or the chart would never advance.
     check("cpu power committed samples once the popup opened", sampler.cpupowerRevision > 0)
+    // Judged against the run's own median, not a fixed wattage: the spike was
+    // 7-10x the machine's real draw, while start-up load alone moves it ~2x.
+    var watts = Engine.ringValues(powerSampler.cpuPowerHistory)
+      .filter(function(w) { return !isNaN(w) }).sort(function(a, b) { return a - b })
+    if (powerSampler.cpuPowerReadable && watts.length >= 4) {
+      var median = watts[Math.floor(watts.length / 2)]
+      var peak = watts[watts.length - 1]
+      check("cpu power has no start-up spike (peak " + Math.round(peak) + " W, median "
+            + Math.round(median) + " W)", peak < median * 4)
+    }
     check("revisionOf falls back for an unknown id",
           sampler.revisionOf("nonsense") === sampler.revision)
 
