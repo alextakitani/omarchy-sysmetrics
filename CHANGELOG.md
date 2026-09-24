@@ -6,8 +6,7 @@ Notable changes to System Metrics. Versions follow [semantic versioning](https:/
 the patch digit is a fix, the minor digit adds something a config can ask for, and
 nothing has needed a major bump yet.
 
-## Unreleased
-
+## 1.4.0 — 2026-09-24
 ### Added
 
 - **CPU power and GPU power**: package watts from RAPL and card watts from

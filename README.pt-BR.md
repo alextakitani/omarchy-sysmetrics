@@ -2,6 +2,8 @@
 
 [English](README.md) · **Português (Brasil)**
 
+![System Metrics — seu sistema inteiro, num relance](preview.png)
+
 Um widget de barra para o shell do [Omarchy](https://omarchy.org/): uma faixa
 de medidores do sistema ao vivo, e um popup com o detalhe por trás deles.
 

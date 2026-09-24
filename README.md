@@ -2,6 +2,8 @@
 
 **English** · [Português (Brasil)](README.pt-BR.md)
 
+![System Metrics — your whole system, at a glance](preview.png)
+
 A bar widget for the [Omarchy](https://omarchy.org/) shell: a strip of live
 system gauges, and a popup with the detail behind them.
 

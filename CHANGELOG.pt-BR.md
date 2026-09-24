@@ -6,8 +6,7 @@ Mudanças relevantes no System Metrics. As versões seguem o [versionamento sem�
 o dígito de patch é uma correção, o dígito minor acrescenta algo que uma configuração pode
 pedir, e nada precisou de um bump major até agora.
 
-## Não lançado
-
+## 1.4.0 — 2026-09-24
 ### Adicionado
 
 - **CPU power e GPU power**: watts do pacote a partir do RAPL e watts da placa a partir
