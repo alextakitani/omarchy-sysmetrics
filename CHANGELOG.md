@@ -6,7 +6,7 @@ Notable changes to System Metrics. Versions follow [semantic versioning](https:/
 the patch digit is a fix, the minor digit adds something a config can ask for, and
 nothing has needed a major bump yet.
 
-## Unreleased
+## 1.5.0 — 2026-10-08
 ### Added
 
 - **The CPU section is laid out like a btop box.** It now leads with the chip's

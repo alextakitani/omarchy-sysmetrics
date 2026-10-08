@@ -6,7 +6,7 @@ Mudanças relevantes no System Metrics. As versões seguem o [versionamento sem�
 o dígito de patch é uma correção, o dígito minor acrescenta algo que uma configuração pode
 pedir, e nada precisou de um bump major até agora.
 
-## Não lançado
+## 1.5.0 — 2026-10-08
 ### Adicionado
 
 - **A seção de CPU ficou com o layout de uma caixa do btop.** Agora ela abre com
