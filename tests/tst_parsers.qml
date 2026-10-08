@@ -32,7 +32,8 @@ TestCase {
     var hostile = [undefined, null, 0, 42, NaN, true, ({}), [], "", ":::", "junk"]
     var names = ["parseProcStat", "parseMeminfo", "parseNetDev", "parseDefaultIface",
                  "parseDiskstats", "parseHwmonMillidegrees", "parseUevent",
-                 "parseFirstNumber", "parseLoadavg", "parseDf", "parseUptimeSeconds"]
+                 "parseFirstNumber", "parseLoadavg", "parseDf", "parseUptimeSeconds",
+                 "parseCpuModel"]
     for (var n = 0; n < names.length; n++) {
       for (var i = 0; i < hostile.length; i++) {
         // Any throw here fails the test case, which is the assertion: these

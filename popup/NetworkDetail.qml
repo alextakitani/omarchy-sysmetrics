@@ -14,6 +14,8 @@ DetailSection {
   readonly property string interfaceName: sampler ? sampler.networkInterface : ""
   readonly property real rx: sampler ? sampler.networkRx : NaN
   readonly property real tx: sampler ? sampler.networkTx : NaN
+  readonly property real totalRx: sampler ? sampler.networkTotalRx : NaN
+  readonly property real totalTx: sampler ? sampler.networkTotalTx : NaN
 
   title: "Network"
   headline: root.interfaceName.length > 0 ? root.interfaceName : Format.DASH
@@ -66,6 +68,29 @@ DetailSection {
     }
   }
 
+  // The running total since the interface came up. It answers "how much has
+  // gone through", which a rate cannot -- a quiet moment says nothing about
+  // the gigabytes already moved.
+  RowLayout {
+    Layout.fillWidth: true
+    spacing: Style.space(4)
+
+    Text {
+      Layout.fillWidth: true
+      text: "Total down"
+      color: Color.muted
+      font.family: Style.font.family
+      font.pixelSize: Style.font.caption
+    }
+
+    Text {
+      text: Format.formatBytes(root.totalRx)
+      color: Color.popups.text
+      font.family: Style.font.family
+      font.pixelSize: Style.font.caption
+    }
+  }
+
   RowLayout {
     Layout.fillWidth: true
     spacing: Style.space(4)
@@ -80,6 +105,26 @@ DetailSection {
 
     Text {
       text: Format.formatRateFull(root.tx)
+      color: Color.popups.text
+      font.family: Style.font.family
+      font.pixelSize: Style.font.caption
+    }
+  }
+
+  RowLayout {
+    Layout.fillWidth: true
+    spacing: Style.space(4)
+
+    Text {
+      Layout.fillWidth: true
+      text: "Total up"
+      color: Color.muted
+      font.family: Style.font.family
+      font.pixelSize: Style.font.caption
+    }
+
+    Text {
+      text: Format.formatBytes(root.totalTx)
       color: Color.popups.text
       font.family: Style.font.family
       font.pixelSize: Style.font.caption

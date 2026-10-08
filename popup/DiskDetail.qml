@@ -25,7 +25,7 @@ DetailSection {
     for (var i = 0; i < names.length; i++) {
       var name = names[i]
       var d = devices[name] || {}
-      list.push({ name: name, read: d.read, write: d.write })
+      list.push({ name: name, read: d.read, write: d.write, busy: d.busy })
     }
     return list
   }
@@ -123,6 +123,12 @@ DetailSection {
       Text {
         text: "R " + Format.formatRateFull(deviceRow.modelData.read)
           + " · W " + Format.formatRateFull(deviceRow.modelData.write)
+          // Utilisation, when the kernel reported io_ticks. A disk at 100% busy
+          // moving few bytes is doing slow random I/O, which the rates alone
+          // cannot show.
+          + (isNaN(deviceRow.modelData.busy)
+              ? ""
+              : " · " + Format.formatPercent(deviceRow.modelData.busy))
         color: Color.popups.text
         font.family: Style.font.family
         font.pixelSize: Style.font.caption

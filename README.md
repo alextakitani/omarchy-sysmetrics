@@ -62,15 +62,15 @@ Eleven metrics, each of which you choose to show on the bar or keep in the popup
 
 | Metric | On the bar | In the popup |
 |---|---|---|
-| CPU | busiest core | per-core grid, all-core average, load average |
+| CPU | busiest core | chip + frequency, all-core bar with temperature and power, per-core graphs, load average |
 | CPU temperature | banded line | sensor reading with threshold |
-| Memory | used %, swap as a second line | used / available / cached / buffers / swap |
+| Memory | used %, swap as a second line | used / available / cached / buffers / free / swap |
 | GPU | busy % | busy meter |
 | VRAM | used % | used of total |
 | GPU temperature | banded line | die reading |
 | Storage | fullest filesystem | every filesystem, used of total |
-| Network | download and upload | per-direction rates, interface |
-| Disk I/O | read and write | per-device read and write rates |
+| Network | download and upload | per-direction rates and totals, interface |
+| Disk I/O | read and write | per-device read/write rates and utilisation |
 | CPU power | package watts | watts over time |
 | GPU power | board watts | watts over time |
 

@@ -158,6 +158,35 @@ function formatWatts(n) {
     return (n < 9.95 ? n.toFixed(1) : String(Math.round(n))) + "W";
 }
 
+// The popup's CPU header wants the chip's common name, not the kernel's full
+// marketing string: "AMD Ryzen 7 9700X 8-Core Processor" reads as
+// "Ryzen 7 9700X", and the Intel form drops its "(R)/(TM)" and clock tail.
+// Only shapes seen in the wild are stripped; anything else is passed through
+// unchanged rather than mangled by an over-eager rule.
+function formatCpuModel(name) {
+    if (typeof name !== "string") return DASH;
+    var s = name.replace(/^\s+|\s+$/g, "");
+    if (s.length === 0) return DASH;
+
+    s = s.replace(/\s*@\s*[\d.]+\s*GHz\s*$/i, "");   // Intel's "@ 3.60GHz"
+    s = s.replace(/\s+\d+-Core Processor$/i, "");     // AMD's "8-Core Processor"
+    s = s.replace(/\s+Processor$/i, "");
+    s = s.replace(/\s+CPU$/i, "");
+    s = s.replace(/\(R\)/gi, "").replace(/\(TM\)/gi, "");
+    s = s.replace(/^(AMD|Intel|Apple)\s+/i, "");
+    s = s.replace(/\s{2,}/g, " ").replace(/^\s+|\s+$/g, "");
+
+    return s.length > 0 ? s : DASH;
+}
+
+// CPU frequency. cpufreq reports kilohertz; GHz with one decimal is what
+// everyone reads ("5.7 GHz"). Zero is not a frequency, it is a missing
+// cpufreq driver, and renders as the dash every other absent reading does.
+function formatGhz(khz) {
+    if (isBadNumber(khz) || khz <= 0) return DASH;
+    return (khz / 1e6).toFixed(1) + " GHz";
+}
+
 // Exported for the test suite. QML has no `module`, so this block is inert
 // there and `.pragma library` still applies; Node reads it as an ordinary
 // CommonJS module, which is what lets every function above be tested without
@@ -178,6 +207,8 @@ if (typeof module === "object" && typeof module.exports === "object") {
         formatTempFull: formatTempFull,
         formatUptime: formatUptime,
         formatAge: formatAge,
-        formatWatts: formatWatts
+        formatWatts: formatWatts,
+        formatCpuModel: formatCpuModel,
+        formatGhz: formatGhz
     };
 }

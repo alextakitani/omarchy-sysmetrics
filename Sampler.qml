@@ -106,9 +106,33 @@ QtObject {
   property real cpuAggregate: NaN
   property var cpuCores: []           // current percent per logical core
   property var cpuHistory: Engine.makeRing(60)
+  // One 60-slot history per logical core, so the popup can draw a mini graph
+  // beside each percentage the way btop does. The array is rebuilt only when
+  // the core count changes (SMT toggled, a CPU hotplugged); otherwise the
+  // rings are mutated in place and the consumers see it through their
+  // revision dependency, exactly like the aggregate ring.
+  property var cpuCoreHistory: []
   property var previousCpuAggregate: null
   property var previousCpuCores: []
   property var loadAverage: ({ one: NaN, five: NaN, fifteen: NaN })
+
+  // CPU identity for the popup header. The model is read once at startup
+  // (discovery, not the sampling timer); the frequency is popup-only, like the
+  // load average -- neither is on the strip, so neither costs anything while
+  // the popup is shut.
+  property string cpuModel: ""
+  property real cpuFrequencyKhz: NaN
+
+  function applyCpuModel(text) {
+    cpuModel = Parsers.parseCpuModel(text)
+  }
+
+  function applyCpuFrequency(text) {
+    // cpufreq reports kilohertz. Zero is a missing driver, not a frequency, so
+    // it is dropped to NaN and the header shows a dash rather than "0.0 GHz".
+    var khz = Parsers.parseFirstNumber(text)
+    cpuFrequencyKhz = isFinite(khz) && khz > 0 ? khz : NaN
+  }
 
   function applyProcStat(text) {
     var parsed = Parsers.parseProcStat(text)
@@ -134,6 +158,16 @@ QtObject {
     cpuCores = cores
     previousCpuCores = parsed.cores
 
+    // Per-core history, one ring each. Grows or shrinks with the core list so
+    // a machine whose SMT is toggled ends up with exactly as many graphs as
+    // it has cores, and every graph keeps its place across a resize.
+    if (cpuCoreHistory.length !== cores.length) {
+      var coreRings = []
+      for (var r = 0; r < cores.length; r++) coreRings.push(Engine.makeRing(config.historyLength))
+      cpuCoreHistory = coreRings
+    }
+    for (var c = 0; c < cores.length; c++) Engine.ringPush(cpuCoreHistory[c], cores[c])
+
     // Fall back to the aggregate when there are no per-core lines to read
     // (a first sample, a counter reset, or a kernel that gave us none), so
     // the reading degrades to the old behaviour rather than to nothing.
@@ -153,7 +187,8 @@ QtObject {
   // ---- Memory ------------------------------------------------------------
 
   property var memory: ({ percent: NaN, usedKB: 0, totalKB: 0, availableKB: 0,
-                          cachedKB: 0, buffersKB: 0, swapTotalKB: 0, swapUsedKB: 0 })
+                          freeKB: 0, cachedKB: 0, buffersKB: 0,
+                          swapTotalKB: 0, swapUsedKB: 0 })
   property var memoryHistory: Engine.makeRing(60)
   property var swapHistory: Engine.makeRing(60)
 
@@ -180,6 +215,11 @@ QtObject {
   property string networkInterface: ""
   property real networkRx: NaN
   property real networkTx: NaN
+  // Cumulative bytes since the interface came up, not a rate: btop shows the
+  // running totals beside the speeds, and they answer "how much has gone
+  // through" rather than "how fast right now".
+  property real networkTotalRx: NaN
+  property real networkTotalTx: NaN
   property var networkRxHistory: Engine.makeRing(60)
   property var networkTxHistory: Engine.makeRing(60)
   property var previousNetwork: null
@@ -204,6 +244,8 @@ QtObject {
       previousNetwork = null
       networkRx = NaN
       networkTx = NaN
+      networkTotalRx = NaN
+      networkTotalTx = NaN
       Engine.ringPush(networkRxHistory, NaN)
       Engine.ringPush(networkTxHistory, NaN)
       networkRevision += 1
@@ -218,6 +260,10 @@ QtObject {
 
     networkRx = rx === null ? NaN : rx
     networkTx = tx === null ? NaN : tx
+    // The absolute counters the rates are differenced from. They are the
+    // interface's own since-boot totals, so no baseline is involved.
+    networkTotalRx = current.rxBytes
+    networkTotalTx = current.txBytes
     Engine.ringPush(networkRxHistory, networkRx)
     Engine.ringPush(networkTxHistory, networkTx)
 
@@ -264,7 +310,23 @@ QtObject {
       // physical block size reports.
       var read = Engine.rateBetween(previous ? previous.readSectors * 512 : null, current.readSectors * 512, dt)
       var write = Engine.rateBetween(previous ? previous.writeSectors * 512 : null, current.writeSectors * 512, dt)
-      perDevice[name] = { read: read === null ? NaN : read, write: write === null ? NaN : write }
+
+      // Utilisation: the time the device had I/O in flight as a share of the
+      // wall-clock interval. io_ticks is already milliseconds, so the delta
+      // over dt (also ms) is the percentage. Clamped because the kernel's
+      // accounting can carry a tick over the sample boundary.
+      var busy = NaN
+      if (previous && dt > 0
+          && typeof previous.ioTicks === "number" && typeof current.ioTicks === "number"
+          && current.ioTicks >= previous.ioTicks) {
+        busy = Math.max(0, Math.min(100, (current.ioTicks - previous.ioTicks) / dt * 100))
+      }
+
+      perDevice[name] = {
+        read: read === null ? NaN : read,
+        write: write === null ? NaN : write,
+        busy: busy
+      }
       if (read !== null && write !== null) {
         totalRead += read
         totalWrite += write
@@ -517,6 +579,7 @@ QtObject {
     var size = config.historyLength
     ringSize = size
     cpuHistory = Engine.makeRing(size)
+    cpuCoreHistory = []
     memoryHistory = Engine.makeRing(size)
     swapHistory = Engine.makeRing(size)
     networkRxHistory = Engine.makeRing(size)

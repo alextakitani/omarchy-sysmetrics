@@ -38,7 +38,7 @@ describe('pickUnit', () => {
 describe('unavailable readings render as a dash', () => {
   const cases = ['formatPercent', 'formatRateCompact', 'formatRateFull',
                  'formatBytes', 'formatKB', 'formatTempShort', 'formatTempFull',
-                 'formatUptime']
+                 'formatUptime', 'formatGhz']
   for (const name of cases) {
     it(name + ' dashes on NaN', () => {
       assert.equal(F[name](NaN), DASH)
@@ -132,5 +132,33 @@ describe('formatWatts', () => {
   it('dashes a missing reading', () => {
     assert.equal(F.formatWatts(NaN), F.DASH)
     assert.equal(F.formatWatts(-1), F.DASH)
+  })
+})
+
+describe('formatCpuModel', () => {
+  it('drops the vendor and the descriptor tail', () => {
+    assert.equal(F.formatCpuModel('AMD Ryzen 7 9700X 8-Core Processor'), 'Ryzen 7 9700X')
+  })
+
+  it('cleans the Intel form', () => {
+    assert.equal(F.formatCpuModel('Intel(R) Core(TM) i7-9700K CPU @ 3.60GHz'),
+                 'Core i7-9700K')
+  })
+
+  it('dashes on an empty or missing name', () => {
+    assert.equal(F.formatCpuModel(''), DASH)
+    assert.equal(F.formatCpuModel('   '), DASH)
+    assert.equal(F.formatCpuModel(undefined), DASH)
+  })
+})
+
+describe('formatGhz', () => {
+  it('renders kilohertz as gigahertz with one decimal', () => {
+    assert.equal(F.formatGhz(5639354), '5.6 GHz')
+    assert.equal(F.formatGhz(5787156), '5.8 GHz')
+  })
+
+  it('dashes zero, which is a missing cpufreq driver rather than idle', () => {
+    assert.equal(F.formatGhz(0), DASH)
   })
 })

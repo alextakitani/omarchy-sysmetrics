@@ -128,6 +128,7 @@ function parseMeminfo(text) {
         totalKB: NaN,
         usedKB: NaN,
         availableKB: NaN,
+        freeKB: NaN,
         cachedKB: NaN,
         buffersKB: NaN,
         swapTotalKB: NaN,
@@ -159,6 +160,7 @@ function parseMeminfo(text) {
 
     var total = values.MemTotal;
     var available = values.MemAvailable;
+    var free = values.MemFree;
     var cached = values.Cached;
     var sreclaim = values.SReclaimable;
     var buffers = values.Buffers;
@@ -166,7 +168,6 @@ function parseMeminfo(text) {
     var swapFree = values.SwapFree;
 
     if (typeof total === "number") result.totalKB = total;
-    if (typeof available === "number") result.availableKB = available;
     if (typeof buffers === "number") result.buffersKB = buffers;
     if (typeof swapTotal === "number") result.swapTotalKB = swapTotal;
 
@@ -174,10 +175,27 @@ function parseMeminfo(text) {
         result.cachedKB = cached + (typeof sreclaim === "number" ? sreclaim : 0);
     }
 
-    if (typeof total === "number" && typeof available === "number") {
-        result.usedKB = total - available;
-        if (total > 0) {
-            result.percent = 100 * result.usedKB / total;
+    if (typeof free === "number") result.freeKB = free;
+
+    // MemAvailable is the kernel's own estimate of what is reclaimable and is
+    // what every tool shows as "available". Kernels before 3.14 do not have
+    // it, so like btop we fall back to free + cached rather than losing the
+    // whole reading. `used` is then total - available, but never trusts a
+    // available figure larger than the machine: btop clamps that case to
+    // MemFree, and a `used` that has gone negative would be nonsense.
+    if (typeof available !== "number" && typeof free === "number") {
+        available = free + (typeof result.cachedKB === "number" ? result.cachedKB : 0);
+    }
+    if (typeof available === "number") {
+        result.availableKB = available;
+        if (typeof total === "number") {
+            var basis = available <= total
+                ? available
+                : (typeof free === "number" ? free : available);
+            result.usedKB = total - basis;
+            if (total > 0) {
+                result.percent = 100 * result.usedKB / total;
+            }
         }
     }
 
@@ -307,8 +325,9 @@ function parseDiskstats(text) {
         if (line.length === 0) continue;
 
         var parts = line.split(/\s+/);
-        // major minor name + at least 11 fields (need up to field 7)
-        if (parts.length < 10) continue;
+        // major minor name + at least 11 fields. Field 10 (io_ticks) is the
+        // last one read here, at index 12.
+        if (parts.length < 13) continue;
 
         var name = parts[2];
         if (name.length > MAX_NAME) continue;
@@ -317,10 +336,19 @@ function parseDiskstats(text) {
         // parts[3] = field1 ... parts[3 + (n-1)] = fieldN
         var readSectors = parseInt(parts[3 + 2], 10);   // field 3
         var writeSectors = parseInt(parts[3 + 6], 10);  // field 7
+        // Field 10: milliseconds the device had I/O in flight. Its delta over
+        // wall-clock time is the device's utilisation -- the "IO%" btop draws,
+        // which separates a disk busy with slow random I/O from one moving
+        // the same bytes in fewer, larger requests.
+        var ioTicks = parseInt(parts[3 + 9], 10);       // field 10
 
         if (!isFinite(readSectors) || !isFinite(writeSectors)) continue;
 
-        result[name] = { readSectors: readSectors, writeSectors: writeSectors };
+        result[name] = {
+            readSectors: readSectors,
+            writeSectors: writeSectors,
+            ioTicks: isFinite(ioTicks) ? ioTicks : NaN
+        };
         rows += 1;
     }
 
@@ -481,6 +509,33 @@ function parseUptimeSeconds(text) {
     var first = String(text || "").trim().split(/\s+/)[0];
     var value = Number(first);
     return isFinite(value) && value >= 0 ? value : NaN;
+}
+
+// The CPU name, from the "model name" line of /proc/cpuinfo. Read once at
+// startup for the popup header, so there is no recurring cost; the value is a
+// string the platform chose, so it is clamped before it is retained and drawn
+// as a label. Empty means "unknown", never a fabricated name.
+var CPU_MODEL_MAX = 128;
+
+function parseCpuModel(text) {
+    var raw = String(text || "");
+    if (raw.length === 0) return "";
+    if (raw.length >= PROC_MAX_BYTES) return "";   // truncated: fail closed
+
+    var lines = raw.split("\n");
+    for (var i = 0; i < lines.length; i++) {
+        var line = lines[i];
+        var colon = line.indexOf(":");
+        if (colon === -1) continue;
+        // x86 spells the key "model name" (space, not tab); the padding around
+        // the colon differs between kernels, so both sides are trimmed.
+        if (line.slice(0, colon).trim() !== "model name") continue;
+        var value = line.slice(colon + 1).trim();
+        if (value.length === 0) return "";
+        if (value.length > CPU_MODEL_MAX) value = value.slice(0, CPU_MODEL_MAX);
+        return value;
+    }
+    return "";
 }
 
 // ---- Per-process table --------------------------------------------------
@@ -668,6 +723,7 @@ if (typeof module === "object" && typeof module.exports === "object") {
         parseDf: parseDf,
         clampTarget: clampTarget,
         parseUptimeSeconds: parseUptimeSeconds,
+        parseCpuModel: parseCpuModel,
         parseProcessTable: parseProcessTable,
         processCpuPercents: processCpuPercents,
         processTicksByPid: processTicksByPid,

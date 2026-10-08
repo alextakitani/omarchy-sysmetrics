@@ -7,6 +7,21 @@ o dígito de patch é uma correção, o dígito minor acrescenta algo que uma co
 pedir, e nada precisou de um bump major até agora.
 
 ## Não lançado
+### Adicionado
+
+- **A seção de CPU ficou com o layout de uma caixa do btop.** Agora ela abre com
+  o nome do chip e a frequência atual, depois uma barra para a carga de todos os
+  núcleos com a temperatura do pacote e o consumo da CPU ao lado, então os
+  percentuais por núcleo em duas colunas — cada um com seu próprio gráfico de
+  histórico, não um guia estático — e o load average no rodapé.
+
+- **Leituras inspiradas no collector do btop.** A memória agora mostra Livre e
+  continua funcionando em kernels sem `MemAvailable` (cai para livre + cache);
+  a rede mostra os totais acumulados de cada interface ao lado das taxas; e a
+  E/S de disco mostra a utilização por dispositivo — a fração do intervalo em
+  que o disco teve E/S em andamento, que distingue um disco ocupado com E/S
+  aleatória lenta de um que move os mesmos bytes em poucas requisições grandes.
+
 ### Corrigido
 
 - **Um crash não perde mais a gravação.** Um único `zstd` de vida longa não

@@ -7,6 +7,21 @@ the patch digit is a fix, the minor digit adds something a config can ask for, a
 nothing has needed a major bump yet.
 
 ## Unreleased
+### Added
+
+- **The CPU section is laid out like a btop box.** It now leads with the chip's
+  name and current frequency, then one bar for the all-core load with the
+  package temperature and CPU power beside it, then the per-core percentages in
+  two columns -- each with its own history graph, not a static leader -- and the
+  load average at the foot.
+
+- **Readings borrowed from btop's collector.** Memory now shows Free and keeps
+  working on kernels without `MemAvailable` (falling back to free + cached);
+  Network shows each interface's cumulative totals beside the rates; Disk I/O
+  shows per-device utilisation — the share of the interval the disk had I/O in
+  flight, which tells a disk busy with slow random I/O apart from one moving the
+  same bytes in a few large requests.
+
 ### Fixed
 
 - **A crash no longer loses the recording.** One long-lived `zstd` wrote

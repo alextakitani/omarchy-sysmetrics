@@ -70,15 +70,15 @@ Onze métricas, e você escolhe se cada uma aparece na barra ou fica no popup
 
 | Métrica | Na barra | No popup |
 |---|---|---|
-| CPU | núcleo mais ocupado | grade por núcleo, média de todos os núcleos, load average |
+| CPU | núcleo mais ocupado | chip + frequência, barra de todos os núcleos com temperatura e consumo, gráficos por núcleo, load average |
 | CPU temperature (temperatura da CPU) | linha em faixa | leitura do sensor com limite |
-| Memory (memória) | % usada, swap como segunda linha | usada / disponível / cache / buffers / swap |
+| Memory (memória) | % usada, swap como segunda linha | usada / disponível / cache / buffers / livre / swap |
 | GPU | % ocupada | medidor de ocupação |
 | VRAM | % usada | usada do total |
 | GPU temperature (temperatura da GPU) | linha em faixa | leitura do die |
 | Storage (armazenamento) | sistema de arquivos mais cheio | todos os sistemas de arquivos, usado do total |
-| Network (rede) | download e upload | taxas por direção, interface |
-| Disk I/O (E/S de disco) | leitura e escrita | taxas de leitura e escrita por dispositivo |
+| Network (rede) | download e upload | taxas e totais por direção, interface |
+| Disk I/O (E/S de disco) | leitura e escrita | taxas de leitura/escrita e utilização por dispositivo |
 | CPU power (consumo da CPU) | watts do pacote | watts ao longo do tempo |
 | GPU power (consumo da GPU) | watts da placa | watts ao longo do tempo |
 

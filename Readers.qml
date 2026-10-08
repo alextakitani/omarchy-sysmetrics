@@ -109,7 +109,10 @@ Item {
     // all day, for a number nobody was looking at.
     if (ready && sampler.popupOpen) {
       uptimeFile.reload()
-      if (wantCpu) loadavgFile.reload()
+      if (wantCpu) {
+        loadavgFile.reload()
+        cpuFrequencyFile.reload()
+      }
       if (wantGpu && !wantVram && sampler.gpuCard !== "") {
         vramUsedFile.reload()
         vramTotalFile.reload()
@@ -202,6 +205,39 @@ Item {
     watchChanges: false
     printErrors: false
     onLoaded: if (readers.ready) readers.sampler.applyUptime(readers.boundedText(this))
+  }
+
+  // The CPU's name, for the popup header. Read once at startup like the hwmon
+  // name probe: it cannot change while the machine is up. /proc/cpuinfo is not
+  // kernel-bounded to a page, so the value goes through boundedText -- a
+  // machine whose cpuinfo ran past the ceiling shows no model rather than
+  // allocating it.
+  FileView {
+    id: cpuInfoFile
+    path: "/proc/cpuinfo"
+    watchChanges: false
+    printErrors: false
+    blockLoading: true
+    Component.onCompleted: if (readers.ready) readers.sampler.applyCpuModel(readers.boundedText(this))
+  }
+
+  // The CPU frequency, for the popup header. cpufreq reports one value per
+  // policy; cpu0 is representative on x86, and its recent-window average
+  // (cpuinfo_avg_freq) is steadier than the instantaneous scaling_cur_freq, so
+  // it is preferred with the latter as a fallback on older kernels. Popup-only:
+  // it is reloaded with the other detail readings, never on the strip's tick.
+  FileView {
+    id: cpuFrequencyFile
+    path: "/sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_avg_freq"
+    watchChanges: false
+    printErrors: false
+    onLoaded: if (readers.ready) readers.sampler.applyCpuFrequency(readers.boundedText(this))
+    onLoadFailed: {
+      // One fallback only: the guard keeps a machine with no cpufreq at all
+      // from retrying the same alternate path forever.
+      if (cpuFrequencyFile.path.endsWith("/scaling_cur_freq")) return
+      cpuFrequencyFile.path = "/sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq"
+    }
   }
 
   Process {

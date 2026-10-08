@@ -16,6 +16,7 @@ DetailSection {
   readonly property real usedKB: mem ? mem.usedKB : NaN
   readonly property real totalKB: mem ? mem.totalKB : NaN
   readonly property real availableKB: mem ? mem.availableKB : NaN
+  readonly property real freeKB: mem ? mem.freeKB : NaN
   readonly property real cachedKB: mem ? mem.cachedKB : NaN
   readonly property real buffersKB: mem ? mem.buffersKB : NaN
   readonly property real swapTotalKB: mem ? mem.swapTotalKB : NaN
@@ -70,6 +71,14 @@ DetailSection {
     value: Format.formatKB(root.buffersKB)
     ratio: (isNaN(root.buffersKB) || isNaN(root.totalKB) || root.totalKB <= 0)
       ? NaN : root.buffersKB / root.totalKB
+  }
+
+  MeterRow {
+    Layout.fillWidth: true
+    label: "Free"
+    value: Format.formatKB(root.freeKB)
+    ratio: (isNaN(root.freeKB) || isNaN(root.totalKB) || root.totalKB <= 0)
+      ? NaN : root.freeKB / root.totalKB
   }
 
   MeterRow {

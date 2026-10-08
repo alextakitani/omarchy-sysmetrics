@@ -1,101 +1,71 @@
 import QtQuick
 import QtQuick.Layouts
 import qs.Commons
-import "../js/format.js" as Format
 
-// Compact grid of per-core usage cells, roughly square (e.g. 16 cores -> 4x4).
-// Deliberately plain Rectangles rather than one Canvas per core: Canvas
-// repaint is per-item overhead that buys nothing here since a filled bar is
-// just two rectangles that bind for free.
-GridLayout {
+// Live per-core usage as two columns: the first half of the cores down the
+// left, the second half down the right. That is the shape btop draws, so a
+// sixteen-core machine is read eight rows at a time rather than as one long
+// list. Each row is a CoreRow.
+RowLayout {
   id: root
 
   property var cores: []
+  property var histories: []
+  property int revision: 0
+  property real urgentAt: 90
 
-  columns: Math.max(1, Math.ceil(Math.sqrt(cores.length)))
-  rowSpacing: Style.space(2)
-  columnSpacing: Style.space(7)
+  readonly property int count: cores ? cores.length : 0
+  readonly property int splitAt: Math.ceil(count / 2)
 
-  Repeater {
-    model: root.cores
+  // The Repeater's model is the *indices*, which only change when the core
+  // count does. The per-core values are read through properties on each row
+  // instead, so a new sample updates the sixteen rows rather than tearing
+  // down and rebuilding sixteen delegates (and their graphs) every tick.
+  function indexRange(from, to) {
+    var out = []
+    for (var i = from; i < to && i < root.count; i++) out.push(i)
+    return out
+  }
 
-    delegate: ColumnLayout {
-      id: cell
-      required property var modelData
-      required property int index
+  readonly property var leftIndices: indexRange(0, splitAt)
+  readonly property var rightIndices: indexRange(splitAt, count)
 
-      readonly property real pct: modelData
-      readonly property bool hasPct: !isNaN(pct)
-      readonly property bool isUrgent: hasPct && pct >= 90
+  spacing: Style.space(10)
 
-      Layout.fillWidth: true
-      // Without a floor the four columns squeeze until the core index and its
-      // percentage collide into one unreadable run of digits.
-      Layout.minimumWidth: Style.space(19)
-      spacing: Style.space(1)
+  ColumnLayout {
+    Layout.fillWidth: true
+    // Equal to the right column's, so the layout gives the two an even split
+    // rather than sizing each to its own content.
+    Layout.preferredWidth: 1
+    spacing: Style.space(2)
 
-      RowLayout {
-        Layout.fillWidth: true
-        // Index and value are one reading, so they sit together on the left
-        // with the slack pushed to the right of the pair. Spreading them to
-        // the cell's two edges put each value nearer the next core's index
-        // than its own, and the eye grouped them wrongly.
-        spacing: Style.space(2)
-
-        Text {
-          // Chip glyph (U+F4BC) and the core number are one label, so they
-          // live in a single Text: as separate items the number was aligned
-          // to the right of its own reserved box and drifted away from the
-          // glyph. Escaped rather than written literally so the glyph
-          // survives being edited through a shell heredoc.
-          text: "\uF4BC " + cell.index
-          color: Color.muted
-          font.family: Style.font.family
-          font.pixelSize: Style.font.caption
-          // Reserved at the two-digit width so single-digit cores line up
-          // with the rest of the column instead of shifting left.
-          Layout.preferredWidth: indexMetrics.advanceWidth
-          TextMetrics {
-            id: indexMetrics
-            font.family: Style.font.family
-            font.pixelSize: Style.font.caption
-            text: "\uF4BC 88"
-          }
-        }
-
-        Item { Layout.fillWidth: true }
-
-        Text {
-          text: Format.formatPercent(cell.pct)
-          color: Color.popups.text
-          font.family: Style.font.family
-          font.pixelSize: Style.font.caption
-          horizontalAlignment: Text.AlignRight
-          // Reserved at its widest so the column does not shift as values
-          // change width.
-          Layout.preferredWidth: pctMetrics.advanceWidth
-          TextMetrics {
-            id: pctMetrics
-            font.family: Style.font.family
-            font.pixelSize: Style.font.caption
-            text: "100%"
-          }
-        }
+    Repeater {
+      model: root.leftIndices
+      delegate: CoreRow {
+        required property var modelData
+        coreIndex: modelData
+        pct: root.cores[modelData]
+        history: root.histories[modelData]
+        revision: root.revision
+        urgent: !isNaN(pct) && pct >= root.urgentAt
       }
+    }
+  }
 
-      Rectangle {
-        id: track
-        Layout.fillWidth: true
-        height: Style.space(1)
-        radius: height / 2
-        color: Util.alpha(Color.muted, 0.3)
+  ColumnLayout {
+    Layout.fillWidth: true
+    Layout.preferredWidth: 1
+    spacing: Style.space(2)
 
-        Rectangle {
-          height: parent.height
-          radius: parent.radius
-          width: cell.hasPct ? track.width * Math.max(0, Math.min(1, cell.pct / 100)) : 0
-          color: cell.isUrgent ? Color.urgent : Color.accent
-        }
+    Repeater {
+      model: root.rightIndices
+      delegate: CoreRow {
+        required property var modelData
+        coreIndex: modelData
+        pct: root.cores[modelData]
+        history: root.histories[modelData]
+        revision: root.revision
+        urgent: !isNaN(pct) && pct >= root.urgentAt
       }
     }
   }

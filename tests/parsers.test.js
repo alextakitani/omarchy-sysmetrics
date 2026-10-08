@@ -126,6 +126,31 @@ describe('parseMeminfo', () => {
     assert.equal(m.swapUsedKB, 4000000 - 3000000)
   })
 
+  it('carries the free figure through', () => {
+    assert.equal(P.parseMeminfo(MEM).freeKB, 2000000)
+  })
+
+  it('falls back to free + cached when MemAvailable is absent', () => {
+    // Kernels before 3.14 have no MemAvailable. Losing the whole reading would
+    // be worse than the older, slightly pessimistic estimate.
+    const old = ['MemTotal:       16000000 kB',
+                 'MemFree:         2000000 kB',
+                 'Buffers:          500000 kB',
+                 'Cached:          3000000 kB'].join('\n')
+    const m = P.parseMeminfo(old)
+    assert.equal(m.availableKB, 2000000 + 3000000)
+    assert.equal(m.usedKB, 16000000 - 5000000)
+  })
+
+  it('clamps an available larger than total to free', () => {
+    // A nonsense available must not drive used negative.
+    const odd = ['MemTotal:       1000 kB',
+                 'MemFree:         400 kB',
+                 'MemAvailable:    2000 kB'].join('\n')
+    const m = P.parseMeminfo(odd)
+    assert.equal(m.usedKB, 600)
+  })
+
   it('yields a sentinel shape when the file is empty', () => {
     const m = P.parseMeminfo('')
     assert.ok(Number.isNaN(m.percent))
@@ -188,6 +213,17 @@ describe('parseDiskstats', () => {
     const t = P.parseDiskstats(DS)
     assert.equal(t.nvme0n1.readSectors, 2000)
     assert.equal(t.nvme0n1.writeSectors, 4000)
+  })
+
+  it('reads io_ticks from field 10 for utilisation', () => {
+    const t = P.parseDiskstats(DS)
+    assert.equal(t.nvme0n1.ioTicks, 0)
+  })
+
+  it('drops a device line too short to carry io_ticks', () => {
+    // Only 9 post-name fields: no field 10, so the line is not trusted at all
+    // rather than half-read.
+    assert.deepEqual(P.parseDiskstats(' 259       0 nvme0n1 1 2 3 4 5 6 7 8 9'), {})
   })
 
   it('caps retained devices', () => {
@@ -339,6 +375,22 @@ describe('small readers', () => {
 
   it('parseUptimeSeconds rejects a negative uptime', () => {
     assert.ok(Number.isNaN(P.parseUptimeSeconds('-1 0')))
+  })
+
+  it('parseCpuModel reads the model name line', () => {
+    const info = 'processor\t: 0\nvendor_id\t: AuthenticAMD\n' +
+                 'model name\t: AMD Ryzen 7 9700X 8-Core Processor\n' +
+                 'cpu MHz\t\t: 3600.000\n'
+    assert.equal(P.parseCpuModel(info), 'AMD Ryzen 7 9700X 8-Core Processor')
+  })
+
+  it('parseCpuModel is empty when the line is absent', () => {
+    assert.equal(P.parseCpuModel('processor\t: 0\nvendor_id\t: GenuineIntel\n'), '')
+  })
+
+  it('parseCpuModel fails closed on a truncated cpuinfo', () => {
+    const huge = 'model name\t: X\n' + 'y'.repeat(P.PROC_MAX_BYTES)
+    assert.equal(P.parseCpuModel(huge), '')
   })
 })
 
