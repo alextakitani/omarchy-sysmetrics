@@ -467,6 +467,45 @@ BarWidget {
             text: root.labelTemplateFor(gauge.modelData)
           }
         }
+
+        // `cpu.perCore`: one bar per logical core after the CPU reading. The
+        // model is the core count, not the array, so a new sample re-binds the
+        // bar heights instead of rebuilding every delegate on every tick.
+        Row {
+          id: coreStrip
+          // Not read back from `visible`, which is also false whenever the
+          // bar itself is hidden and would tear the bars down with it.
+          readonly property bool wanted: gauge.modelData === "cpu" && root.config.cpu.perCore
+          visible: coreStrip.wanted
+          height: root.plotHeight
+          spacing: 1
+
+          Repeater {
+            model: coreStrip.wanted ? sampler.cpuCores.length : 0
+
+            Rectangle {
+              id: coreBar
+              required property int index
+              readonly property real percent: {
+                var value = sampler.cpuCores[coreBar.index]
+                return value === undefined ? NaN : value
+              }
+              width: 2
+              height: root.plotHeight
+              color: Qt.rgba(Color.bar.text.r, Color.bar.text.g, Color.bar.text.b, 0.15)
+
+              Rectangle {
+                anchors.bottom: parent.bottom
+                width: parent.width
+                // No reading draws no fill, not a misleading idle core.
+                height: isNaN(coreBar.percent)
+                  ? 0
+                  : Math.max(1, Math.round(parent.height * Math.max(0, Math.min(1, coreBar.percent / 100))))
+                color: coreBar.percent >= root.config.cpu.urgent ? Color.urgent : Color.accent
+              }
+            }
+          }
+        }
       }
     }
 

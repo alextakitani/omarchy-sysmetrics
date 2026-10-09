@@ -28,7 +28,9 @@ DetailSection {
   readonly property real urgentAt: sampler ? sampler.config.cpu.urgent : 90
   readonly property bool aggregateUrgent: !isNaN(cpuAggregate) && cpuAggregate >= urgentAt
 
-  title: "Processor · busiest core"
+  title: sampler && sampler.config.cpu.reading === "average"
+    ? "Processor · average"
+    : "Processor · busiest core"
   headline: Format.formatPercent(cpuUsage)
 
   DetailChart {

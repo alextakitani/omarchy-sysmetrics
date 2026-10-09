@@ -102,7 +102,12 @@ QtObject {
   //
   // cpuAggregate keeps the mean, because "how loaded is the machine overall"
   // is still the right question for the popup to answer alongside it.
+  //
+  // `cpu.reading: "average"` swaps the headline over to the mean for anyone
+  // who wants the overall load on the strip instead. cpuBusiest keeps the
+  // peak either way, so the log's cpu_max_pct column stays what it says.
   property real cpuUsage: NaN
+  property real cpuBusiest: NaN
   property real cpuAggregate: NaN
   property var cpuCores: []           // current percent per logical core
   property var cpuHistory: Engine.makeRing(60)
@@ -171,7 +176,8 @@ QtObject {
     // Fall back to the aggregate when there are no per-core lines to read
     // (a first sample, a counter reset, or a kernel that gave us none), so
     // the reading degrades to the old behaviour rather than to nothing.
-    var usage = isNaN(busiest) ? cpuAggregate : busiest
+    cpuBusiest = isNaN(busiest) ? cpuAggregate : busiest
+    var usage = config.cpu.reading === "average" ? cpuAggregate : cpuBusiest
 
     // A NaN here means there is no measurable interval yet (first sample, or
     // a counter reset). Pushing NaN keeps the plot honest instead of drawing
