@@ -29,7 +29,7 @@ BarWidget {
     if (id === "memory") return "\uEFC5"
     if (id === "network") return "\uDB80\uDE00"
     if (id === "disk") return "\uDB80\uDECA"
-    if (id === "gpu") return "\uDB83\uDFB0"
+    if (id === "gpu") return "\uDB82\uDCAE"
     if (id === "vram") return "\uDB80\uDF5B"
     if (id === "storage") return "\uDB80\uDECA"
     if (id === "cputemp") return "\uF2C9"

@@ -205,3 +205,52 @@ describe('power from an energy counter', () => {
     assert.equal(E.powerFromEnergy(1e6, 2e6, 0, 65e9), null)
   })
 })
+
+// A desktop Ryzen or a non-F Intel chip has an integrated GPU beside the
+// discrete card, and the iGPU often takes the lower DRM number.
+describe('GPU card selection', () => {
+  const DRIVERS = ['amdgpu', 'i915', 'xe', 'nouveau', 'nvidia', 'radeon']
+  const igpu = { index: 0, card: 'card0', driver: 'amdgpu', slot: '0000:7c:00.0', vram: 536870912 }
+  const dgpu = { index: 1, card: 'card1', driver: 'amdgpu', slot: '0000:03:00.0', vram: 25753026560 }
+
+  it('prefers the discrete card over an integrated one numbered first', () => {
+    assert.equal(E.pickGpuCard([igpu, dgpu], DRIVERS), 'card1')
+    assert.equal(E.pickGpuCard([dgpu, igpu], DRIVERS), 'card1')
+  })
+
+  it('keeps the lowest-numbered card when no driver reports VRAM', () => {
+    const intel = { index: 0, card: 'card0', driver: 'i915', slot: '0000:00:02.0' }
+    const nvidia = { index: 1, card: 'card1', driver: 'nvidia', slot: '0000:01:00.0' }
+    assert.equal(E.pickGpuCard([nvidia, intel], DRIVERS), 'card0')
+  })
+
+  it('skips cards whose driver it cannot read', () => {
+    const simple = { index: 0, card: 'card0', driver: 'simpledrm', slot: '', vram: 1e12 }
+    assert.equal(E.pickGpuCard([simple, dgpu], DRIVERS), 'card1')
+    assert.equal(E.pickGpuCard([simple], DRIVERS), '')
+  })
+
+  it('returns nothing when there is nothing to pick', () => {
+    assert.equal(E.pickGpuCard([], DRIVERS), '')
+  })
+})
+
+// hwmon numbering follows probe order, so with two amdgpu chips the first
+// hwmon named "amdgpu" can belong to either card.
+describe('GPU sensor selection', () => {
+  const names = { hwmon2: 'amdgpu', hwmon3: 'amdgpu', hwmon6: 'k10temp' }
+  const slots = { hwmon2: '0000:7c:00.0', hwmon3: '0000:03:00.0' }
+
+  it('takes the hwmon on the chosen card', () => {
+    assert.equal(E.gpuHwmonFor(names, slots, ['amdgpu'], '0000:03:00.0'), 'hwmon3')
+  })
+
+  it('falls back to the first matching name without a card slot', () => {
+    assert.equal(E.gpuHwmonFor(names, slots, ['amdgpu'], ''), 'hwmon2')
+    assert.equal(E.gpuHwmonFor(names, {}, ['amdgpu'], '0000:03:00.0'), 'hwmon2')
+  })
+
+  it('returns nothing when no hwmon carries a wanted name', () => {
+    assert.equal(E.gpuHwmonFor(names, slots, ['nouveau'], '0000:03:00.0'), '')
+  })
+})

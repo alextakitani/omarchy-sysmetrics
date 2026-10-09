@@ -2,6 +2,7 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 import "js/parsers.js" as Parsers
+import "js/engine.js" as Engine
 
 // All file I/O for the strip, plus the runtime discovery that finds the GPU
 // and the temperature sensor.
@@ -10,7 +11,8 @@ import "js/parsers.js" as Parsers
 // numbers are not stable across reboots and /sys/class/drm also holds
 // connector entries (card1-DP-1, card1-HDMI-A-1), while hwmon numbering shifts
 // with probe order. Both are therefore resolved by identity — the GPU by its
-// uevent DRIVER, the sensor by its hwmon name — never by index.
+// uevent DRIVER and VRAM, the sensor by its hwmon name and the GPU's PCI
+// slot — never by index.
 Item {
   id: readers
 
@@ -390,6 +392,16 @@ Item {
         id: gpuSlot
         required property int index
 
+        // Declared ahead of the uevent so it exists when that one completes;
+        // blockLoading makes the read synchronous either way.
+        FileView {
+          id: gpuVramTotal
+          path: "/sys/class/drm/card" + gpuSlot.index + "/device/mem_info_vram_total"
+          watchChanges: false
+          printErrors: false
+          blockLoading: true
+        }
+
         FileView {
           id: gpuUevent
           path: "/sys/class/drm/card" + gpuSlot.index + "/device/uevent"
@@ -398,15 +410,21 @@ Item {
           blockLoading: true
 
           Component.onCompleted: {
-            if (!readers.ready || readers.sampler.gpuCard !== "") return
-            if (readers.configuredGpuCard !== "") {
-              readers.sampler.gpuCard = readers.configuredGpuCard
-              return
-            }
+            if (!readers.ready) return
             var fields = Parsers.parseUevent(readers.boundedText(gpuUevent))
             var driver = fields.DRIVER ? String(fields.DRIVER) : ""
-            if (readers.gpuDrivers.indexOf(driver) >= 0)
-              readers.sampler.gpuCard = "card" + gpuSlot.index
+            if (driver === "") return
+            // Every card is recorded, not just the first recognised one, so
+            // the picker can weigh an iGPU against the discrete card.
+            var list = readers.gpuCandidates.slice()
+            list.push({
+              index: gpuSlot.index,
+              card: "card" + gpuSlot.index,
+              driver: driver,
+              slot: fields.PCI_SLOT_NAME ? String(fields.PCI_SLOT_NAME) : "",
+              vram: Parsers.parseFirstNumber(readers.boundedText(gpuVramTotal))
+            })
+            readers.gpuCandidates = list
           }
         }
       }
@@ -414,6 +432,30 @@ Item {
   }
 
   readonly property var gpuDrivers: ["amdgpu", "i915", "xe", "nouveau", "nvidia", "radeon"]
+
+  // Every card discovery found, and the PCI slot of the one being read. The
+  // slot is what ties the GPU's hwmon sensors to that same card.
+  property var gpuCandidates: []
+  property string gpuPciSlot: ""
+
+  function resolveGpuCard() {
+    if (!ready) return
+    var card = configuredGpuCard !== ""
+      ? configuredGpuCard
+      : Engine.pickGpuCard(gpuCandidates, gpuDrivers)
+    var slot = ""
+    for (var i = 0; i < gpuCandidates.length; i++)
+      if (gpuCandidates[i].card === card) slot = gpuCandidates[i].slot
+    sampler.gpuCard = card
+    gpuPciSlot = slot
+  }
+
+  onGpuCandidatesChanged: resolveGpuCard()
+  onConfiguredGpuCardChanged: resolveGpuCard()
+  onGpuPciSlotChanged: {
+    resolveGpuTemperatureSensor()
+    resolveGpuPowerSensor()
+  }
 
   // gpu.card lets a multi-GPU machine name the card instead of taking the
   // first one whose driver is recognised. It becomes a path segment, so it
@@ -490,6 +532,16 @@ Item {
         id: hwmonSlot
         required property int index
 
+        // The PCI device behind the chip, so a GPU sensor can be matched to
+        // its card. Declared first for the same reason as gpuVramTotal.
+        FileView {
+          id: hwmonDevice
+          path: "/sys/class/hwmon/hwmon" + hwmonSlot.index + "/device/uevent"
+          watchChanges: false
+          printErrors: false
+          blockLoading: true
+        }
+
         FileView {
           id: hwmonName
           path: "/sys/class/hwmon/hwmon" + hwmonSlot.index + "/name"
@@ -502,6 +554,15 @@ Item {
             // is retained in hwmonNames and reaches the popup as a label.
             var name = String(readers.boundedText(hwmonName) || "").trim()
             if (name === "" || name.length > 64) return
+            // Recorded before the name, so the resolvers that run on
+            // onHwmonNamesChanged already see this chip's slot.
+            var fields = Parsers.parseUevent(readers.boundedText(hwmonDevice))
+            if (fields.PCI_SLOT_NAME) {
+              var slots = {}
+              for (var s in readers.hwmonSlots) slots[s] = readers.hwmonSlots[s]
+              slots["hwmon" + hwmonSlot.index] = String(fields.PCI_SLOT_NAME)
+              readers.hwmonSlots = slots
+            }
             // Rebuilt as a fresh object: mutating the existing one and
             // assigning it back is the same reference, so QML sees no change
             // and onHwmonNamesChanged never fires.
@@ -538,35 +599,26 @@ Item {
     // on amdgpu; nvidia's is surfaced the same way by its kernel driver.
     // A configured gputemp.sensor names the hwmon directly and wins, which
     // is what the README documents; "auto" falls back to driver identity.
+    // Among several chips with that name, the one on the chosen card wins.
     var configured = String(sampler.config.gputemp.sensor)
     var drivers = configured !== "auto"
       ? [configured]
       : ["amdgpu", "nouveau", "nvidia"]
-    for (var d = 0; d < drivers.length; d++) {
-      for (var key in hwmonNames) {
-        if (hwmonNames[key] === drivers[d]) {
-          gpuTemperatureInputPath = "/sys/class/hwmon/" + key + "/temp1_input"
-          return
-        }
-      }
-    }
+    var key = Engine.gpuHwmonFor(hwmonNames, hwmonSlots, drivers, gpuPciSlot)
+    if (key !== "") gpuTemperatureInputPath = "/sys/class/hwmon/" + key + "/temp1_input"
   }
 
   // The GPU's power sensor lives on the same hwmon as its temperature, but is
   // resolved on its own: gputemp.sensor may name a different chip entirely.
   property string gpuPowerPath: ""
+  // hwmonN -> PCI slot, for the chips that sit on a PCI device.
+  property var hwmonSlots: ({})
 
   function resolveGpuPowerSensor() {
-    var drivers = ["amdgpu", "nouveau"]
-    for (var d = 0; d < drivers.length; d++) {
-      for (var key in hwmonNames) {
-        if (hwmonNames[key] === drivers[d]) {
-          gpuPowerPath = "/sys/class/hwmon/" + key + "/power1_average"
-          sampler.hasGpuPowerSensor = true
-          return
-        }
-      }
-    }
+    var key = Engine.gpuHwmonFor(hwmonNames, hwmonSlots, ["amdgpu", "nouveau"], gpuPciSlot)
+    if (key === "") return
+    gpuPowerPath = "/sys/class/hwmon/" + key + "/power1_average"
+    sampler.hasGpuPowerSensor = true
   }
 
   onHwmonNamesChanged: {

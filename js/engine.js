@@ -223,6 +223,54 @@ function emphasize(ratio) {
     return Math.pow(r, 0.6);
 }
 
+// The GPU to report, from the cards discovery found: { index, card, driver,
+// vram }. A desktop Ryzen or a non-F Intel chip carries an integrated GPU
+// beside the discrete card, and the iGPU often takes the lower DRM number, so
+// "the first card with a known driver" reads the iGPU. Dedicated VRAM tells
+// them apart -- an iGPU's is a small carve-out, the card's is gigabytes. A
+// driver that reports no VRAM counts as 0, so a lone i915/xe/nvidia card is
+// still chosen, and equal VRAM keeps the lowest-numbered card as before.
+function pickGpuCard(candidates, drivers) {
+    if (!candidates || typeof candidates.length !== "number") return "";
+    if (!drivers || typeof drivers.indexOf !== "function") return "";
+    var best = null;
+    for (var i = 0; i < candidates.length; i++) {
+        var c = candidates[i];
+        if (!c || typeof c !== "object" || typeof c.driver !== "string") continue;
+        if (drivers.indexOf(c.driver) < 0) continue;
+        var vram = typeof c.vram === "number" && isFinite(c.vram) && c.vram > 0 ? c.vram : 0;
+        if (best === null || vram > best.vram || (vram === best.vram && c.index < best.index)) {
+            best = { card: c.card, index: c.index, vram: vram };
+        }
+    }
+    return best && typeof best.card === "string" ? best.card : "";
+}
+
+// The hwmon behind the chosen card: names maps hwmonN to its hwmon name and
+// slots maps it to its PCI slot. hwmon numbering follows probe order, so with
+// two amdgpu chips the first hwmon named "amdgpu" can belong to either card;
+// the PCI slot ties temperature and power to the card the gauges show.
+// Without a slot match it falls back to the first matching name, as before.
+function gpuHwmonFor(names, slots, drivers, slot) {
+    if (!names || typeof names !== "object") return "";
+    if (!drivers || typeof drivers.length !== "number") return "";
+    var bySlot = slots && typeof slots === "object" ? slots : {};
+    var key;
+    if (typeof slot === "string" && slot !== "") {
+        for (var d = 0; d < drivers.length; d++) {
+            for (key in names) {
+                if (names[key] === drivers[d] && bySlot[key] === slot) return key;
+            }
+        }
+    }
+    for (var f = 0; f < drivers.length; f++) {
+        for (key in names) {
+            if (names[key] === drivers[f]) return key;
+        }
+    }
+    return "";
+}
+
 // Exported for the test suite. QML has no `module`, so this block is inert
 // there and `.pragma library` still applies; Node reads it as an ordinary
 // CommonJS module, which is what lets every function above be tested without
@@ -239,6 +287,8 @@ if (typeof module === "object" && typeof module.exports === "object") {
         powerFromEnergy: powerFromEnergy,
         rollingCeiling: rollingCeiling,
         normalizeLevel: normalizeLevel,
-        emphasize: emphasize
+        emphasize: emphasize,
+        pickGpuCard: pickGpuCard,
+        gpuHwmonFor: gpuHwmonFor
     };
 }
