@@ -317,6 +317,18 @@ ShellRoot {
     check("revisionOf routes storage", sampler.revisionOf("storage") === sampler.storageRevision)
     check("revisionOf routes cpu power", sampler.revisionOf("cpupower") === sampler.cpupowerRevision)
     check("revisionOf routes gpu power", sampler.revisionOf("gpupower") === sampler.gpupowerRevision)
+
+    // ---- GPU discovery ---------------------------------------------------
+    // Vacuous on a machine without a GPU; on one with an iGPU beside a
+    // discrete card, these are what keep every GPU reading on one card.
+    check("discovery hands its candidates to the picker",
+          readers.configuredGpuCard !== "" ||
+          sampler.gpuCard === Engine.pickGpuCard(readers.gpuCandidates, readers.gpuDrivers))
+    var gpuHwmon = readers.gpuTemperatureInputPath.split("/")[4] || ""
+    check("gpu temperature comes from the chosen card",
+          readers.gpuPciSlot !== undefined &&
+          (readers.gpuPciSlot === "" || gpuHwmon === "" ||
+           readers.hwmonSlots[gpuHwmon] === readers.gpuPciSlot))
     // Unpinned, so it samples only once the popup opens -- and a refused RAPL
     // read must still commit a sample, or the chart would never advance.
     check("cpu power committed samples once the popup opened", sampler.cpupowerRevision > 0)

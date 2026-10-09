@@ -289,7 +289,9 @@ Adicione as chaves que quiser à entrada do widget em
 de temperatura pelo nome no hwmon, a interface de rede pela rota padrão, e os
 discos excluindo partições e dispositivos virtuais. Nenhum deles é acessível
 por um caminho fixo — os números de placa do DRM e os índices do hwmon não são
-estáveis entre reboots.
+estáveis entre reboots. Com uma GPU integrada ao lado de uma placa dedicada,
+vence a placa com mais VRAM, e a temperatura e o consumo da GPU vêm dessa
+mesma placa.
 
 `showIcon`, `showSparkline` e `showValue` são independentes, então a faixa
 pode ser reduzida às partes que você quiser — `"showSparkline": false` deixa

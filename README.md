@@ -272,6 +272,8 @@ want to the widget's entry in `~/.config/omarchy/shell.json`:
 their hwmon name, the network interface by the default route, and disks by
 excluding partitions and virtual devices. None of these are addressable by a
 fixed path — DRM card numbers and hwmon indices are not stable across reboots.
+With an integrated GPU beside a discrete card, the card with the most VRAM
+wins, and the GPU's temperature and power come from that same card.
 
 `showIcon`, `showSparkline` and `showValue` are independent, so the strip can
 be reduced to whichever parts you want — `"showSparkline": false` leaves a row
