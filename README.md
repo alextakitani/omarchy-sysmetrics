@@ -257,7 +257,9 @@ want to the widget's entry in `~/.config/omarchy/shell.json`:
   "showSparkline": true,          // false: values and icons only, no plots
   "showValue": true,
   "showIcon": true,
-  "cpu":         { "urgent": 90 },   // compared against the busiest core
+  "cpu":         { "urgent": 90,     // compared against the gauge's reading
+                   "reading": "busiest",  // or "average" across all cores
+                   "perCore": false },    // true: a bar per core beside it
   "memory":      { "urgent": 90 },
   "gpu":         { "card": "auto", "urgent": 95 },
   "storage":     { "urgent": 90 },

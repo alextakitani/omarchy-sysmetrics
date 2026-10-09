@@ -156,6 +156,37 @@ ShellRoot {
     settings: ({ "metrics": ["cpu"] })
   }
 
+  // The per-core strip is drawn beside the reading, so the gauge must grow
+  // by it. The bars arrive with the first sample, after creation, and a Row
+  // only re-lays out once polished -- which needs a window.
+  Window {
+    width: 400
+    height: 40
+    visible: true
+
+    Plugin.BarWidget {
+      id: cpuGauge
+      settings: ({ "metrics": ["cpu"] })
+    }
+
+    Plugin.BarWidget {
+      id: perCoreGauge
+      settings: ({ "metrics": ["cpu"], "cpu": { "perCore": true } })
+    }
+  }
+
+  // `cpu.reading: "average"` moves the headline to the mean, while the peak
+  // stays available for the log's cpu_max_pct column.
+  Plugin.Sampler {
+    id: averageSampler
+    config: Config.normalizeConfig({ "metrics": ["cpu"], "cpu": { "reading": "average" } })
+  }
+
+  Plugin.Readers {
+    id: averageReaders
+    sampler: averageSampler
+  }
+
   // A vertical bar is the other layout: the Row never lays out there and the
   // WidgetButton draws its own label, so the placeholder must stand down or
   // it draws a second centred text on top of the live reading.
@@ -232,6 +263,7 @@ ShellRoot {
     onTriggered: {
       readers.sampleAll()
       powerReaders.sampleAll()
+      averageReaders.sampleAll()
       harness.ticks += 1
 
       // Fire the producer-bounded read once, sampling RSS either side of it.
@@ -295,6 +327,11 @@ ShellRoot {
           isNaN(sampler.cpuAggregate) ||
           sampler.cpuUsage >= sampler.cpuAggregate - 0.001)
     check("the aggregate is still available", !isNaN(sampler.cpuAggregate))
+    check("the average reading is the mean",
+          !isNaN(averageSampler.cpuUsage) &&
+          averageSampler.cpuUsage === averageSampler.cpuAggregate)
+    check("the average reading still keeps the busiest core",
+          averageSampler.cpuBusiest >= averageSampler.cpuAggregate - 0.001)
     check("cpu percent is in range", sampler.cpuUsage >= 0 && sampler.cpuUsage <= 100)
     check("memory percent is a real number", !isNaN(sampler.memory.percent))
     check("memory total is nonzero", sampler.memory.totalKB > 0)
@@ -470,6 +507,8 @@ ShellRoot {
           emptyGauge.showsPlaceholder)
     check("a pinned metric with parts on does not",
           !fullGauge.showsPlaceholder)
+    check("the per-core strip widens the cpu gauge",
+          perCoreGauge.implicitWidth > cpuGauge.implicitWidth)
     check("the placeholder gauge still reserves width",
           emptyGauge.implicitWidth > 12)
     check("the popup still has something to anchor to",

@@ -31,7 +31,9 @@ var DEFAULTS = {
     showValue: true,
     showIcon: true,
     emphasizeLowLoad: true,
-    cpu: { urgent: 90 },
+    // reading: what the CPU gauge shows -- "busiest" core or the "average"
+    // across all of them. perCore adds a bar per logical core beside it.
+    cpu: { urgent: 90, reading: "busiest", perCore: false },
     memory: { urgent: 90 },
     gpu: { card: "auto", urgent: 95 },
     network: { interface: "auto", minCeiling: 65536 },
@@ -112,9 +114,17 @@ function normalizeUrgent(raw, fallback) {
 }
 
 function normalizeCpu(raw) {
-    var out = { urgent: DEFAULTS.cpu.urgent };
+    var out = {
+        urgent: DEFAULTS.cpu.urgent,
+        reading: DEFAULTS.cpu.reading,
+        perCore: DEFAULTS.cpu.perCore
+    };
     if (raw && typeof raw === "object") {
         out.urgent = normalizeUrgent(raw.urgent, DEFAULTS.cpu.urgent);
+        if (raw.reading === "average" || raw.reading === "busiest") {
+            out.reading = raw.reading;
+        }
+        out.perCore = normalizeBool(raw.perCore, DEFAULTS.cpu.perCore);
     }
     return out;
 }

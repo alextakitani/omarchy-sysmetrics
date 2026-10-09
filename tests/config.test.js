@@ -105,6 +105,26 @@ describe('thresholds', () => {
   })
 })
 
+describe('cpu reading', () => {
+  it('defaults to the busiest core with no per-core strip', () => {
+    const cpu = C.normalizeConfig({}).cpu
+    assert.equal(cpu.reading, 'busiest')
+    assert.equal(cpu.perCore, false)
+  })
+
+  it('accepts the average and the per-core strip', () => {
+    const cpu = C.normalizeConfig({ cpu: { reading: 'average', perCore: true } }).cpu
+    assert.equal(cpu.reading, 'average')
+    assert.equal(cpu.perCore, true)
+  })
+
+  it('falls back to the busiest core on an unknown reading', () => {
+    for (const reading of ['mean', '', 1, null, {}]) {
+      assert.equal(C.normalizeConfig({ cpu: { reading } }).cpu.reading, 'busiest')
+    }
+  })
+})
+
 describe('booleans', () => {
   it('honours an explicit false', () => {
     // A user turning something off must not be overridden by the default.

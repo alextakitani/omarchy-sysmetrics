@@ -119,7 +119,7 @@ Item {
     var s = sampler
     var mem = s.memory
     return {
-      cpu: s.cpuUsage,
+      cpu: s.cpuBusiest,
       cpuAvg: s.cpuAggregate,
       cputemp: s.temperature,
       mem: mem.percent,

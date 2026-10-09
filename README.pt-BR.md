@@ -274,7 +274,9 @@ Adicione as chaves que quiser à entrada do widget em
   "showSparkline": true,          // false: só valores e ícones, sem gráficos
   "showValue": true,
   "showIcon": true,
-  "cpu":         { "urgent": 90 },   // comparado com o núcleo mais ocupado
+  "cpu":         { "urgent": 90,     // comparado com a leitura do medidor
+                   "reading": "busiest",  // ou "average", a média dos núcleos
+                   "perCore": false },    // true: uma barra por núcleo ao lado
   "memory":      { "urgent": 90 },
   "gpu":         { "card": "auto", "urgent": 95 },
   "storage":     { "urgent": 90 },
