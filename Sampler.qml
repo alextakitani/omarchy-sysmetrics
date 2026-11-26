@@ -55,6 +55,8 @@ QtObject {
   // states this rather than `revision`, so it is invalidated only by its own
   // samples.
   function revisionOf(id) {
+    // A further card's metric (vram2) shares its base metric's counter.
+    if (Config.gpuIndex(id) > 0) id = Config.baseMetricId(id)
     if (id === "cpu") return cpuRevision
     if (id === "memory") return memoryRevision
     if (id === "network") return networkRevision
@@ -87,6 +89,11 @@ QtObject {
   // recorded, since a log with the popup shut is the whole point of one.
   function sampling(id) {
     return popupOpen || enabled(id) || recording.indexOf(id) >= 0
+  }
+
+  // The same for one card's reading: "vram" on card 1 is the id "vram2".
+  function samplingGpu(base, index) {
+    return sampling(Config.gpuMetricId(base, index))
   }
 
   // ---- CPU ---------------------------------------------------------------
@@ -373,7 +380,24 @@ QtObject {
 
   // ---- GPU ---------------------------------------------------------------
 
-  property string gpuCard: ""          // e.g. "card1", resolved by driver, not by number
+  // Every card discovery found, main card first: the one gpu.card names,
+  // otherwise the one with the most VRAM -- on a machine with an integrated
+  // and a discrete GPU, the discrete one. Each entry carries its own readings
+  // and rings: { card, slot, pciId, name, label, devicePath, temperaturePath, powerPath,
+  // usage, vramUsed, vramTotal, temperature, power, usageHistory, vramHistory,
+  // temperatureHistory, powerHistory }. The fields are mutated in place, like
+  // the rings, so views read them under their metric's revision counter.
+  //
+  // The scalars below are the main card's, for the bar, which draws one
+  // gauge per metric: its rings are the main card's rings, not copies.
+  property var gpus: []
+  // "Radeon 610M, card0 (0d:00.0)" per entry, in order, for the analysis prompt.
+  property var gpuLabels: []
+  // Raised once discovery has run, even when it found nothing: a recording
+  // waits for it, so its header has a column group for every card.
+  property bool gpusResolved: false
+
+  property string gpuCard: ""          // the main card, e.g. "card1"
   property real gpuUsage: NaN
   property var gpuHistory: Engine.makeRing(60)
   property real gpuVramUsed: NaN
@@ -384,17 +408,88 @@ QtObject {
     ? (gpuVramUsed * 100 / gpuVramTotal)
     : NaN
 
-  function applyGpuBusy(text) {
+  function gpuVramPercent(gpu) {
+    return gpu && gpu.vramTotal > 0 && !isNaN(gpu.vramUsed) ? gpu.vramUsed * 100 / gpu.vramTotal : NaN
+  }
+
+  // found: [{ card, slot, pciId, devicePath, temperaturePath, powerPath }],
+  // main card first. The same list again keeps the history; a different one
+  // starts every card's rings afresh.
+  function setGpus(found) {
+    var idents = found.map(g => g.card + (g.slot ? " (" + g.slot.replace(/^0000:/, "") + ")" : ""))
+    var same = idents.length === gpus.length && gpus.every((g, i) => g.ident === idents[i]
+      && g.temperaturePath === found[i].temperaturePath && g.powerPath === found[i].powerPath)
+    if (same) {
+      gpusResolved = true
+      return
+    }
+    var size = config.historyLength
+    gpus = found.map((g, i) => ({
+      card: g.card, slot: g.slot, pciId: g.pciId, ident: idents[i],
+      name: "", label: idents[i], devicePath: g.devicePath,
+      temperaturePath: g.temperaturePath, powerPath: g.powerPath,
+      usage: NaN, vramUsed: NaN, vramTotal: NaN, temperature: NaN, power: NaN,
+      usageHistory: Engine.makeRing(size), vramHistory: Engine.makeRing(size),
+      temperatureHistory: Engine.makeRing(size), powerHistory: Engine.makeRing(size)
+    }))
+    gpuLabels = idents
+    gpuUsage = NaN; gpuVramUsed = NaN; gpuVramTotal = NaN; gpuTemperature = NaN; gpuPower = NaN
+    aliasMainGpu()
+    // Last, so a recording waiting on it finds the labels already in place.
+    gpusResolved = true
+  }
+
+  // Marketing names by PCI id, from the system's pci.ids: { "1002:73df":
+  // "Radeon RX 6700/6700 XT/6750 XT / 6800M/6850M XT" }. A card with no entry
+  // keeps its DRM name.
+  function applyGpuNames(names) {
+    for (var i = 0; i < gpus.length; i++) {
+      var name = names[gpus[i].pciId] || ""
+      gpus[i].name = name
+      gpus[i].label = name !== "" ? name : gpus[i].ident
+    }
+    gpuLabels = gpus.map(g => g.name !== "" ? g.name + ", " + g.ident : g.ident)
+    gpus = gpus.slice()
+  }
+
+  function aliasMainGpu() {
+    var main = gpus.length > 0 ? gpus[0] : null
+    gpuCard = main ? main.card : ""
+    gpuHistory = main ? main.usageHistory : Engine.makeRing(config.historyLength)
+    vramHistory = main ? main.vramHistory : Engine.makeRing(config.historyLength)
+    gpuTemperatureHistory = main ? main.temperatureHistory : Engine.makeRing(config.historyLength)
+    gpuPowerHistory = main ? main.powerHistory : Engine.makeRing(config.historyLength)
+    hasGpuPowerSensor = gpus.some(g => g.powerPath !== "")
+  }
+
+  function applyGpuBusy(index, text) {
+    var gpu = gpus[index]
+    if (!gpu) return
     var value = Parsers.parseFirstNumber(text)
-    gpuUsage = value
-    Engine.ringPush(gpuHistory, value)
+    gpu.usage = value
+    Engine.ringPush(gpu.usageHistory, value)
+    if (index === 0) gpuUsage = value
     gpuRevision += 1
     revision += 1
     updated("gpu")
   }
 
-  function recordVram() {
-    Engine.ringPush(vramHistory, vramPercent)
+  function applyVramUsed(index, text) {
+    var gpu = gpus[index]
+    if (!gpu) return
+    gpu.vramUsed = Parsers.parseFirstNumber(text)
+    if (index === 0) gpuVramUsed = gpu.vramUsed
+  }
+
+  // Total arrives after used in the same tick, so this is the point at which
+  // the pair is consistent enough to record.
+  function applyVramTotal(index, text, record) {
+    var gpu = gpus[index]
+    if (!gpu) return
+    gpu.vramTotal = Parsers.parseFirstNumber(text)
+    if (index === 0) gpuVramTotal = gpu.vramTotal
+    if (!record) return
+    Engine.ringPush(gpu.vramHistory, gpuVramPercent(gpu))
     vramRevision += 1
     revision += 1
     updated("vram")
@@ -421,10 +516,13 @@ QtObject {
     updated("cputemp")
   }
 
-  function applyGpuTemperature(text) {
+  function applyGpuTemperature(index, text) {
+    var gpu = gpus[index]
+    if (!gpu) return
     var celsius = Parsers.parseHwmonMillidegrees(text)
-    gpuTemperature = celsius
-    Engine.ringPush(gpuTemperatureHistory, celsius)
+    gpu.temperature = celsius
+    Engine.ringPush(gpu.temperatureHistory, celsius)
+    if (index === 0) gpuTemperature = celsius
     gputempRevision += 1
     revision += 1
     updated("gputemp")
@@ -451,7 +549,8 @@ QtObject {
   property real previousEnergyUj: NaN
   property real previousEnergyAt: 0
   // Set by discovery, so the GPU section can be hidden on a machine without
-  // the sensor rather than flashing in on its first reading.
+  // the sensor rather than flashing in on its first reading. True when any
+  // card has one.
   property bool hasGpuPowerSensor: false
 
   function applyCpuEnergy(text) {
@@ -474,10 +573,13 @@ QtObject {
     recordCpuPower()
   }
 
-  function applyGpuPower(text) {
+  function applyGpuPower(index, text) {
+    var gpu = gpus[index]
+    if (!gpu) return
     var microwatts = Parsers.parseFirstNumber(text)
-    gpuPower = isFinite(microwatts) && microwatts >= 0 ? microwatts / 1e6 : NaN
-    Engine.ringPush(gpuPowerHistory, gpuPower)
+    gpu.power = isFinite(microwatts) && microwatts >= 0 ? microwatts / 1e6 : NaN
+    Engine.ringPush(gpu.powerHistory, gpu.power)
+    if (index === 0) gpuPower = gpu.power
     gpupowerRevision += 1
     revision += 1
     updated("gpupower")
@@ -593,6 +695,22 @@ QtObject {
     gpuTemperatureHistory = Engine.makeRing(size)
     cpuPowerHistory = Engine.makeRing(size)
     gpuPowerHistory = Engine.makeRing(size)
+    for (var g = 0; g < gpus.length; g++) {
+      gpus[g].usageHistory = Engine.makeRing(size)
+      gpus[g].vramHistory = Engine.makeRing(size)
+      gpus[g].temperatureHistory = Engine.makeRing(size)
+      gpus[g].powerHistory = Engine.makeRing(size)
+    }
+    aliasMainGpu()
+  }
+
+  // A card whose power file turned out not to exist after all: dropped from
+  // the power section. Reassigned so the views see the list change.
+  function gpuPowerUnavailable(index) {
+    if (!gpus[index] || gpus[index].powerPath === "") return
+    gpus[index].powerPath = ""
+    gpus = gpus.slice()
+    hasGpuPowerSensor = gpus.some(g => g.powerPath !== "")
   }
 
   // Guarded on the size, not on the config object. Every write to `settings`

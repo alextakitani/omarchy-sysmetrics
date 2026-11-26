@@ -13,7 +13,41 @@ var MAX_DEVICE_NAME = 64;    // matches MAX_NAME in parsers.js
 // throws -- an invalid setting silently falls back to its default rather
 // than crashing the plugin at load time.
 
-var METRIC_IDS = ["cpu", "cputemp", "cpupower", "memory", "gpu", "vram", "gputemp", "gpupower", "network", "disk", "storage"];
+// The per-card metrics. The plain ids are the main GPU; every further card
+// has its own, numbered like its log columns (gpu2, vram2, gputemp2,
+// gpupower2), so each card's reading is pinned and logged on its own.
+var GPU_METRIC_IDS = ["gpu", "vram", "gputemp", "gpupower"];
+var MAX_GPUS = 4;
+
+function gpuMetricId(base, index) {
+    return index > 0 ? base + (index + 1) : base;
+}
+
+// Which card a GPU metric id reads: 0 for the plain ids, 1 for gpu2, and so
+// on; -1 for anything that is not a GPU metric.
+function gpuIndex(id) {
+    var m = /^(gpu|vram|gputemp|gpupower)([2-9]?)$/.exec(String(id));
+    if (!m) return -1;
+    var index = m[2] === "" ? 0 : Number(m[2]) - 1;
+    return index < MAX_GPUS ? index : -1;
+}
+
+// The metric an id is a reading of: "vram2" is "vram" on the second card.
+function baseMetricId(id) {
+    return gpuIndex(id) > 0 ? String(id).replace(/[2-9]$/, "") : id;
+}
+
+function furtherGpuIds() {
+    var out = [];
+    for (var n = 1; n < MAX_GPUS; n++)
+        for (var i = 0; i < GPU_METRIC_IDS.length; i++) out.push(gpuMetricId(GPU_METRIC_IDS[i], n));
+    return out;
+}
+
+// Further cards sit right after the main one, so the strip and the log keep
+// each GPU's readings together.
+var METRIC_IDS = ["cpu", "cputemp", "cpupower", "memory", "gpu", "vram", "gputemp", "gpupower"]
+    .concat(furtherGpuIds(), ["network", "disk", "storage"]);
 
 var DEFAULT_METRICS = ["cpu", "memory"];
 
@@ -255,6 +289,12 @@ if (typeof module === "object" && typeof module.exports === "object") {
         clamp: clamp,
         isFiniteNumber: isFiniteNumber,
         cloneArray: cloneArray,
+        GPU_METRIC_IDS: GPU_METRIC_IDS,
+        MAX_GPUS: MAX_GPUS,
+        gpuMetricId: gpuMetricId,
+        gpuIndex: gpuIndex,
+        baseMetricId: baseMetricId,
+        furtherGpuIds: furtherGpuIds,
         METRIC_IDS: METRIC_IDS,
         LOG_IDS: LOG_IDS,
         normalizeMetrics: normalizeMetrics,

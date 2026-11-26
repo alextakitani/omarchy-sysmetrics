@@ -38,6 +38,18 @@ var METRIC_COLUMNS = {
     storage: [["storage_pct", "storage", 1, "fullest filesystem, % used"]]
 };
 
+// The per-card metrics, by the prefix their column names share. The plain
+// ids are the main GPU; a further card's id carries its number (vram2), and so
+// do its columns (vram2_pct) and snapshot keys (vram2). Each card is its own
+// selection, so a log holds only the cards that were asked for.
+var GPU_METRICS = { gpu: "gpu", vram: "vram", gputemp: "gputemp", gpupower: "gpu" };
+
+// [base id, card number] for a numbered GPU id ("vram2" -> ["vram", 2]).
+function numberedGpu(id) {
+    var m = /^(gpu|vram|gputemp|gpupower)([2-4])$/.exec(String(id));
+    return m ? [m[1], Number(m[2])] : null;
+}
+
 var PROCESS_HEADER = "t_ms,pid,comm,cpu_s,rss_bytes\n";
 
 // How many processes each window keeps, per ranking. Top CPU and top memory
@@ -50,19 +62,36 @@ function metricIds(selection) {
     var out = [];
     if (!selection || typeof selection.length !== "number") return out;
     for (var i = 0; i < selection.length; i++) {
-        if (METRIC_COLUMNS.hasOwnProperty(selection[i])) out.push(selection[i]);
+        if (METRIC_COLUMNS.hasOwnProperty(selection[i]) || numberedGpu(selection[i])) out.push(selection[i]);
+    }
+    return out;
+}
+
+// [column, snapshot key, decimals] for every logged column, in file order.
+// Header and rows both come from here, so they cannot disagree on a count.
+function columns(selection) {
+    var ids = metricIds(selection);
+    var out = [];
+    for (var i = 0; i < ids.length; i++) {
+        var numbered = numberedGpu(ids[i]);
+        if (!numbered) {
+            out = out.concat(METRIC_COLUMNS[ids[i]]);
+            continue;
+        }
+        var prefix = GPU_METRICS[numbered[0]];
+        var group = METRIC_COLUMNS[numbered[0]];
+        for (var g = 0; g < group.length; g++)
+            out.push([prefix + numbered[1] + group[g][0].slice(prefix.length),
+                      group[g][1] + numbered[1], group[g][2]]);
     }
     return out;
 }
 
 function metricsHeader(selection) {
-    var ids = metricIds(selection);
-    var cols = ["t_ms"];
-    for (var i = 0; i < ids.length; i++) {
-        var group = METRIC_COLUMNS[ids[i]];
-        for (var c = 0; c < group.length; c++) cols.push(group[c][0]);
-    }
-    return cols.join(",") + "\n";
+    var cols = columns(selection);
+    var names = ["t_ms"];
+    for (var i = 0; i < cols.length; i++) names.push(cols[i][0]);
+    return names.join(",") + "\n";
 }
 
 function field(value, decimals) {
@@ -71,13 +100,10 @@ function field(value, decimals) {
 }
 
 function metricsRow(selection, snapshot, tMs) {
-    var ids = metricIds(selection);
+    var cols = columns(selection);
     var snap = snapshot && typeof snapshot === "object" ? snapshot : {};
     var cells = [String(Math.round(Number(tMs)))];
-    for (var i = 0; i < ids.length; i++) {
-        var group = METRIC_COLUMNS[ids[i]];
-        for (var c = 0; c < group.length; c++) cells.push(field(snap[group[c][1]], group[c][2]));
-    }
+    for (var i = 0; i < cols.length; i++) cells.push(field(snap[cols[i][1]], cols[i][2]));
     return cells.join(",") + "\n";
 }
 
@@ -126,7 +152,10 @@ function rank(rows, key) {
 // What the popup's analyze button hands the default agent. Context, not a
 // script: what the files are and what the user wants to learn from them; the
 // agent picks its own tools.
-function analysisPrompt(directory) {
+// gpus: this machine's cards, main card first, as labels ("Radeon 610M,
+// card0 (0d:00.0)"). With more than one, the prompt says which card each
+// numbered column is.
+function analysisPrompt(directory, gpus) {
     var columns = [];
     for (var id in METRIC_COLUMNS) {
         var group = METRIC_COLUMNS[id];
@@ -139,6 +168,7 @@ function analysisPrompt(directory) {
         + "- <stamp>-metrics.csv.zst: one row per sampling tick. t_ms is unix "
         + "milliseconds; the other columns are whichever of these were logged:\n"
         + columns.join("\n") + "\n"
+        + gpuNote(gpus)
         + "  An empty field means there was no reading, not zero.\n"
         + "- <stamp>-processes.csv.zst: every 30 seconds, the top processes by CPU "
         + "and by memory in that window. cpu_s is the CPU seconds the process used "
@@ -157,12 +187,24 @@ function analysisPrompt(directory) {
         + "Start with a short summary, then the details.";
 }
 
+function gpuNote(gpus) {
+    if (!gpus || typeof gpus.length !== "number" || gpus.length < 2) return "";
+    var cards = [];
+    for (var i = 0; i < gpus.length; i++)
+        cards.push((i === 0 ? "unnumbered (gpu_pct, vram_pct, gputemp_c, gpu_w)" : String(i + 1)) + ": " + String(gpus[i]));
+    return "  Those GPU columns are the main GPU; a further GPU's columns carry its "
+        + "number (gpu2_pct, vram2_pct, gputemp2_c, gpu2_w). On this machine, "
+        + cards.join("; ") + ".\n";
+}
+
 if (typeof module === "object" && typeof module.exports === "object") {
     module.exports = {
         METRIC_COLUMNS: METRIC_COLUMNS,
         PROCESS_HEADER: PROCESS_HEADER,
         PROCESSES_PER_WINDOW: PROCESSES_PER_WINDOW,
         metricIds: metricIds,
+        GPU_METRICS: GPU_METRICS,
+        columns: columns,
         metricsHeader: metricsHeader,
         field: field,
         metricsRow: metricsRow,

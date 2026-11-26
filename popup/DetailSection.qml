@@ -112,6 +112,8 @@ ColumnLayout {
 
     PanelSectionHeader {
       Layout.fillWidth: true
+      // A GPU's product name can be long; it gives way to the headline.
+      elide: Text.ElideRight
       text: root.title
       foreground: root.headerHovered && (root.collapsible || root.metricId !== "")
         ? Color.accent

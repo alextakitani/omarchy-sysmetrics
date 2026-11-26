@@ -23,15 +23,9 @@ Item {
   readonly property bool wantMemory: ready && sampler.sampling("memory")
   readonly property bool wantNetwork: ready && sampler.sampling("network")
   readonly property bool wantDisk: ready && sampler.sampling("disk")
-  readonly property bool wantGpu: ready && sampler.sampling("gpu")
-  readonly property bool wantVram: ready && sampler.sampling("vram")
   readonly property bool wantStorage: ready && sampler.sampling("storage")
-  // Both GPU metrics come off the same card, so either one needs discovery.
-  readonly property bool wantGpuDevice: wantGpu || wantVram || wantGpuTemperature
   readonly property bool wantTemperature: ready && sampler.sampling("cputemp")
-  readonly property bool wantGpuTemperature: ready && sampler.sampling("gputemp")
   readonly property bool wantCpuPower: ready && sampler.sampling("cpupower")
-  readonly property bool wantGpuPower: ready && sampler.sampling("gpupower")
   // Not a `sampling()` metric: the process lists cannot be pinned to the bar,
   // so they have no `metrics` entry to consult. They are gated on their own
   // sections being expanded instead, which is stricter than popupOpen.
@@ -64,11 +58,7 @@ Item {
       netDevFile.reload()
     }
     if (wantDisk) diskstatsFile.reload()
-    if (wantGpu && sampler.gpuCard !== "") gpuBusyFile.reload()
-    if (wantVram && sampler.gpuCard !== "") {
-      vramUsedFile.reload()
-      vramTotalFile.reload()
-    }
+    for (var g = 0; g < gpuReaders.count; g++) gpuReaders.itemAt(g).sample()
     if (wantTemperature && temperatureInputPath !== "") temperatureFile.reload()
 
     // Capacity is the one reading that needs a subprocess: it comes from
@@ -95,12 +85,10 @@ Item {
       }
       storageTicks -= 1
     }
-    if (wantGpuTemperature && gpuTemperatureInputPath !== "") gpuTemperatureFile.reload()
     if (wantCpuPower) {
       energyRequested = true
       energyFile.reload()
     }
-    if (wantGpuPower && gpuPowerPath !== "") gpuPowerFile.reload()
 
     // Popup-only detail: level readings with no history, so sampling them
     // lazily costs nothing and they are correct on the popup's first tick.
@@ -113,9 +101,9 @@ Item {
         loadavgFile.reload()
         cpuFrequencyFile.reload()
       }
-      if (wantGpu && !wantVram && sampler.gpuCard !== "") {
-        vramUsedFile.reload()
-        vramTotalFile.reload()
+      for (var v = 0; v < gpuReaders.count; v++) {
+        var reader = gpuReaders.itemAt(v)
+        if (reader.wantBusy && !reader.wantVram) reader.readVram()
       }
     }
 
@@ -380,6 +368,23 @@ Item {
   // blockLoading, so discovery costs one synchronous sweep and nothing per
   // tick. A missing path is a normal miss, not an error.
 
+  // Every card is collected, not just the first: a desktop with an APU and a
+  // discrete card has two amdgpu cards, and taking whichever came first read
+  // the idle integrated one. Each card is later joined to its own hwmon by PCI
+  // slot, because both hwmons are named "amdgpu" and a name cannot tell them
+  // apart.
+  property var gpuCardsFound: ({})     // "card1" -> { driver, slot, vramTotal }
+  property var hwmonSlots: ({})        // "hwmon1" -> "0000:03:00.0"
+
+  // Both probes are synchronous sweeps of fixed size, so the list is built
+  // once, when the last slot of either has reported.
+  property int probesPending: 8 + 16
+
+  function probeDone() {
+    probesPending -= 1
+    if (probesPending === 0) resolveGpus()
+  }
+
   Item {
     id: gpuProbe
     visible: false
@@ -391,6 +396,14 @@ Item {
         required property int index
 
         FileView {
+          id: gpuVramTotal
+          path: "/sys/class/drm/card" + gpuSlot.index + "/device/mem_info_vram_total"
+          watchChanges: false
+          printErrors: false
+          blockLoading: true
+        }
+
+        FileView {
           id: gpuUevent
           path: "/sys/class/drm/card" + gpuSlot.index + "/device/uevent"
           watchChanges: false
@@ -398,15 +411,23 @@ Item {
           blockLoading: true
 
           Component.onCompleted: {
-            if (!readers.ready || readers.sampler.gpuCard !== "") return
-            if (readers.configuredGpuCard !== "") {
-              readers.sampler.gpuCard = readers.configuredGpuCard
-              return
+            if (readers.ready) {
+              var fields = Parsers.parseUevent(readers.boundedText(gpuUevent))
+              var driver = fields.DRIVER ? String(fields.DRIVER) : ""
+              if (driver !== "") {
+                var map = {}
+                for (var key in readers.gpuCardsFound) map[key] = readers.gpuCardsFound[key]
+                map["card" + gpuSlot.index] = {
+                  driver: driver,
+                  slot: readers.pciSlot(fields.PCI_SLOT_NAME),
+                  pciId: /^[0-9a-f]{4}:[0-9a-f]{4}$/i.test(String(fields.PCI_ID || ""))
+                    ? String(fields.PCI_ID).toLowerCase() : "",
+                  vramTotal: Parsers.parseFirstNumber(readers.boundedText(gpuVramTotal))
+                }
+                readers.gpuCardsFound = map
+              }
             }
-            var fields = Parsers.parseUevent(readers.boundedText(gpuUevent))
-            var driver = fields.DRIVER ? String(fields.DRIVER) : ""
-            if (readers.gpuDrivers.indexOf(driver) >= 0)
-              readers.sampler.gpuCard = "card" + gpuSlot.index
+            readers.probeDone()
           }
         }
       }
@@ -415,48 +436,213 @@ Item {
 
   readonly property var gpuDrivers: ["amdgpu", "i915", "xe", "nouveau", "nvidia", "radeon"]
 
-  // gpu.card lets a multi-GPU machine name the card instead of taking the
-  // first one whose driver is recognised. It becomes a path segment, so it
-  // is accepted only in exactly the shape the kernel uses -- "card" followed
-  // by digits. Anything else is ignored in favour of discovery rather than
-  // concatenated into /sys/class/drm/<...>/device/.
+  // A PCI address ("0000:03:00.0") in exactly that shape, or nothing: it is
+  // compared and shown, never used as a path.
+  function pciSlot(value) {
+    var slot = String(value || "")
+    return /^[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-7]$/i.test(slot) ? slot : ""
+  }
+
+  // gpu.card names the main card instead of letting VRAM size decide. It
+  // becomes a path segment, so it is accepted only in exactly the shape the
+  // kernel uses -- "card" followed by digits. Anything else is ignored in
+  // favour of discovery rather than concatenated into /sys/class/drm/<...>/device/.
   readonly property string configuredGpuCard: {
     if (!ready) return ""
     var configured = String(sampler.config.gpu.card)
     return /^card\d{1,3}$/.test(configured) ? configured : ""
   }
 
-  readonly property string gpuDevicePath: sampler && sampler.gpuCard !== ""
-    ? "/sys/class/drm/" + sampler.gpuCard + "/device/"
-    : ""
+  readonly property string configuredGpuSensor: ready ? String(sampler.config.gputemp.sensor) : "auto"
 
-  FileView {
-    id: gpuBusyFile
-    path: readers.gpuDevicePath === "" ? "" : readers.gpuDevicePath + "gpu_busy_percent"
-    watchChanges: false
-    printErrors: false
-    onLoaded: if (readers.ready) readers.sampler.applyGpuBusy(readers.boundedText(this))
+  onConfiguredGpuCardChanged: resolveGpus()
+  onConfiguredGpuSensorChanged: resolveGpus()
+
+  // Builds the card list for the sampler: main card first, the rest in PCI
+  // order, each with the temperature and power files of its own hwmon.
+  function resolveGpus() {
+    if (!ready || probesPending > 0) return
+    var found = gpuCardsFound
+    var cards = Object.keys(found).filter(c => gpuDrivers.indexOf(found[c].driver) >= 0 || c === configuredGpuCard)
+    cards.sort((a, b) => (found[a].slot < found[b].slot ? -1 : found[a].slot > found[b].slot ? 1 : 0)
+                         || Number(a.slice(4)) - Number(b.slice(4)))
+    // The main card: the configured one, else the most VRAM (the discrete
+    // card beside an APU's carve-out), PCI order breaking ties and covering
+    // drivers that report no VRAM at all.
+    var main = cards.indexOf(configuredGpuCard)
+    if (main < 0) {
+      main = 0
+      for (var i = 1; i < cards.length; i++)
+        if ((found[cards[i]].vramTotal || 0) > (found[cards[main]].vramTotal || 0)) main = i
+    }
+    if (cards.length > 0) cards.unshift(cards.splice(main, 1)[0])
+
+    var used = {}
+    var list = cards.map(card => {
+      var hwmon = gpuHwmon(found[card], used)
+      var name = hwmon ? hwmonNames[hwmon] : ""
+      return {
+        card: card,
+        slot: found[card].slot,
+        pciId: found[card].pciId,
+        devicePath: "/sys/class/drm/" + card + "/device/",
+        // amdgpu/nouveau expose the die reading as temp1_input, labelled
+        // "edge" on amdgpu; nvidia's is surfaced the same way by its driver.
+        temperaturePath: hwmon ? "/sys/class/hwmon/" + hwmon + "/temp1_input" : "",
+        powerPath: hwmon && (name === "amdgpu" || name === "nouveau")
+          ? "/sys/class/hwmon/" + hwmon + "/power1_average" : ""
+      }
+    })
+    // A configured gputemp.sensor names the hwmon directly and wins for the
+    // main card, which is what the README documents.
+    if (list.length > 0 && configuredGpuSensor !== "auto") {
+      for (var key in hwmonNames) {
+        if (hwmonNames[key] === configuredGpuSensor) {
+          list[0].temperaturePath = "/sys/class/hwmon/" + key + "/temp1_input"
+          break
+        }
+      }
+    }
+    sampler.setGpus(list)
+    var ids = list.map(g => g.pciId).filter(id => id !== "")
+    if (ids.length > 0 && !gpuNamesProcess.running) {
+      gpuNamesProcess.command = ["sh", "-c", gpuNamesScript, "sh"].concat(ids)
+      gpuNamesProcess.running = true
+    }
   }
 
-  FileView {
-    id: vramUsedFile
-    path: readers.gpuDevicePath === "" ? "" : readers.gpuDevicePath + "mem_info_vram_used"
-    watchChanges: false
-    printErrors: false
-    onLoaded: if (readers.ready) readers.sampler.gpuVramUsed = Parsers.parseFirstNumber(readers.boundedText(this))
+  // The cards' names, from the PCI id database the system already ships
+  // (hwdata's pci.ids, as lspci uses). Read once at discovery. The device
+  // line reads "Navi 22 [Radeon RX 6700/6700 XT/...]": the bracketed part is
+  // the product, the rest the chip's codename. Capped like the other sweeps.
+  readonly property string gpuNamesScript:
+    "for f in /usr/share/hwdata/pci.ids /usr/share/misc/pci.ids; do [ -r \"$f\" ] && break; done; " +
+    "awk -v want=\"$*\" 'BEGIN { n = split(want, w, \" \"); for (i = 1; i <= n; i++) W[w[i]] = 1 } " +
+    "/^[0-9a-f][0-9a-f][0-9a-f][0-9a-f] / { v = $1; next } " +
+    "/^\\t[0-9a-f][0-9a-f][0-9a-f][0-9a-f] / { id = v \":\" $1; if (id in W) { sub(/^\\t[0-9a-f]+ +/, \"\"); print id \"\\t\" $0 } }' " +
+    "\"$f\" | head -c 4096"
+
+  Process {
+    id: gpuNamesProcess
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        var names = {}
+        String(text).split("\n").forEach(line => {
+          var tab = line.indexOf("\t")
+          if (tab < 0) return
+          var name = line.slice(tab + 1).replace(/[^\x20-\x7e]/g, "").trim()
+          var bracket = /\[([^\]]+)\]/.exec(name)
+          name = (bracket ? bracket[1] : name).slice(0, 80)
+          if (name !== "") names[line.slice(0, tab)] = name
+        })
+        readers.sampler.applyGpuNames(names)
+      }
+    }
   }
 
-  FileView {
-    id: vramTotalFile
-    path: readers.gpuDevicePath === "" ? "" : readers.gpuDevicePath + "mem_info_vram_total"
-    watchChanges: false
-    printErrors: false
-    onLoaded: {
-      if (!readers.ready) return
-      readers.sampler.gpuVramTotal = Parsers.parseFirstNumber(readers.boundedText(this))
-      // Total arrives after used in the same tick, so this is the point at
-      // which the pair is consistent enough to record.
-      if (readers.wantVram) readers.sampler.recordVram()
+  // The card's own hwmon: the one on the same PCI device. A hwmon that does
+  // not report its slot falls back to the first unclaimed one named after the
+  // card's driver, which is what a single-GPU machine always got.
+  function gpuHwmon(card, used) {
+    var keys = Object.keys(hwmonNames).sort((a, b) => Number(a.slice(5)) - Number(b.slice(5)))
+    var pick = ""
+    if (card.slot !== "") pick = keys.find(k => !used[k] && hwmonSlots[k] === card.slot) || ""
+    if (pick === "") pick = keys.find(k => !used[k] && !hwmonSlots[k] && hwmonNames[k] === card.driver) || ""
+    if (pick !== "") used[pick] = true
+    return pick
+  }
+
+  // One set of readers per card, sampled on the strip's tick.
+  Item {
+    visible: false
+
+    Repeater {
+      id: gpuReaders
+      model: readers.ready ? readers.sampler.gpus.length : 0
+      delegate: Item {
+        id: gpuReader
+        required property int index
+        readonly property var gpu: readers.sampler.gpus[index] || null
+        readonly property string devicePath: gpu ? gpu.devicePath : ""
+        // Not bound: the fallback below rewrites it, and a binding would be
+        // broken by that write.
+        property string powerPath: ""
+        onGpuChanged: powerPath = gpu ? gpu.powerPath : ""
+        property bool recordVram: false
+
+        // Each card's readings are wanted on their own: pinning the second
+        // card's power must not start reading its VRAM, or the main card's.
+        readonly property bool wantBusy: readers.ready && readers.sampler.samplingGpu("gpu", index)
+        readonly property bool wantVram: readers.ready && readers.sampler.samplingGpu("vram", index)
+        readonly property bool wantTemperature: readers.ready && readers.sampler.samplingGpu("gputemp", index)
+        readonly property bool wantPower: readers.ready && readers.sampler.samplingGpu("gpupower", index)
+
+        function sample() {
+          if (!gpu) return
+          if (wantBusy) busyFile.reload()
+          if (wantVram) readVram()
+          if (wantTemperature && gpu.temperaturePath !== "") temperatureFile.reload()
+          if (wantPower && powerPath !== "") powerFile.reload()
+        }
+
+        function readVram() {
+          recordVram = wantVram
+          vramUsedFile.reload()
+          vramTotalFile.reload()
+        }
+
+        FileView {
+          id: busyFile
+          path: gpuReader.devicePath === "" ? "" : gpuReader.devicePath + "gpu_busy_percent"
+          watchChanges: false
+          printErrors: false
+          onLoaded: if (readers.ready) readers.sampler.applyGpuBusy(gpuReader.index, readers.boundedText(this))
+        }
+
+        FileView {
+          id: vramUsedFile
+          path: gpuReader.devicePath === "" ? "" : gpuReader.devicePath + "mem_info_vram_used"
+          watchChanges: false
+          printErrors: false
+          onLoaded: if (readers.ready) readers.sampler.applyVramUsed(gpuReader.index, readers.boundedText(this))
+        }
+
+        FileView {
+          id: vramTotalFile
+          path: gpuReader.devicePath === "" ? "" : gpuReader.devicePath + "mem_info_vram_total"
+          watchChanges: false
+          printErrors: false
+          onLoaded: if (readers.ready)
+            readers.sampler.applyVramTotal(gpuReader.index, readers.boundedText(this), gpuReader.recordVram)
+        }
+
+        FileView {
+          id: temperatureFile
+          path: gpuReader.gpu ? gpuReader.gpu.temperaturePath : ""
+          watchChanges: false
+          printErrors: false
+          onLoaded: if (readers.ready) readers.sampler.applyGpuTemperature(gpuReader.index, readers.boundedText(this))
+        }
+
+        // Discrete amdgpu cards report the averaged power1_average; APUs and
+        // newer kernels only the instantaneous power1_input, so a missing
+        // average falls back to it once.
+        FileView {
+          id: powerFile
+          path: gpuReader.powerPath
+          watchChanges: false
+          printErrors: false
+          onLoaded: if (readers.ready && gpuReader.wantPower)
+            readers.sampler.applyGpuPower(gpuReader.index, readers.boundedText(this))
+          onLoadFailed: {
+            if (!readers.ready || gpuReader.powerPath === "") return
+            if (gpuReader.powerPath.endsWith("/power1_average"))
+              gpuReader.powerPath = gpuReader.powerPath.replace(/power1_average$/, "power1_input")
+            else readers.sampler.gpuPowerUnavailable(gpuReader.index)
+          }
+        }
+      }
     }
   }
 
@@ -464,7 +650,6 @@ Item {
 
   property var hwmonNames: ({})
   property string temperatureInputPath: ""
-  property string gpuTemperatureInputPath: ""
 
   readonly property var sensorPreference: {
     if (!ready) return ["k10temp"]
@@ -490,6 +675,16 @@ Item {
         id: hwmonSlot
         required property int index
 
+        // The PCI device behind the sensor, which is what ties a GPU's
+        // hwmon to its DRM card. Absent for sensors that are not on PCI.
+        FileView {
+          id: hwmonDevice
+          path: "/sys/class/hwmon/hwmon" + hwmonSlot.index + "/device/uevent"
+          watchChanges: false
+          printErrors: false
+          blockLoading: true
+        }
+
         FileView {
           id: hwmonName
           path: "/sys/class/hwmon/hwmon" + hwmonSlot.index + "/name"
@@ -498,21 +693,34 @@ Item {
           blockLoading: true
 
           Component.onCompleted: {
-            // Bounded like the rest, and length-capped besides: this string
-            // is retained in hwmonNames and reaches the popup as a label.
-            var name = String(readers.boundedText(hwmonName) || "").trim()
-            if (name === "" || name.length > 64) return
-            // Rebuilt as a fresh object: mutating the existing one and
-            // assigning it back is the same reference, so QML sees no change
-            // and onHwmonNamesChanged never fires.
-            var map = {}
-            for (var key in readers.hwmonNames) map[key] = readers.hwmonNames[key]
-            map["hwmon" + hwmonSlot.index] = name
-            readers.hwmonNames = map
+            readers.recordHwmon(hwmonSlot.index, hwmonName, hwmonDevice)
+            readers.probeDone()
           }
         }
       }
     }
+  }
+
+  function recordHwmon(index, nameView, deviceView) {
+    if (!ready) return
+    // Bounded like the rest, and length-capped besides: this string is
+    // retained in hwmonNames and reaches the popup as a label.
+    var name = String(boundedText(nameView) || "").trim()
+    if (name === "" || name.length > 64) return
+    var slot = pciSlot(Parsers.parseUevent(boundedText(deviceView)).PCI_SLOT_NAME)
+    if (slot !== "") {
+      var slots = {}
+      for (var s in hwmonSlots) slots[s] = hwmonSlots[s]
+      slots["hwmon" + index] = slot
+      hwmonSlots = slots
+    }
+    // Rebuilt as a fresh object: mutating the existing one and assigning it
+    // back is the same reference, so QML sees no change and
+    // onHwmonNamesChanged never fires.
+    var map = {}
+    for (var key in hwmonNames) map[key] = hwmonNames[key]
+    map["hwmon" + index] = name
+    hwmonNames = map
   }
 
   function resolveTemperatureSensor() {
@@ -532,48 +740,7 @@ Item {
     }
   }
 
-  function resolveGpuTemperatureSensor() {
-    if (!ready) return
-    // amdgpu/nouveau expose the die reading as temp1_input, labelled "edge"
-    // on amdgpu; nvidia's is surfaced the same way by its kernel driver.
-    // A configured gputemp.sensor names the hwmon directly and wins, which
-    // is what the README documents; "auto" falls back to driver identity.
-    var configured = String(sampler.config.gputemp.sensor)
-    var drivers = configured !== "auto"
-      ? [configured]
-      : ["amdgpu", "nouveau", "nvidia"]
-    for (var d = 0; d < drivers.length; d++) {
-      for (var key in hwmonNames) {
-        if (hwmonNames[key] === drivers[d]) {
-          gpuTemperatureInputPath = "/sys/class/hwmon/" + key + "/temp1_input"
-          return
-        }
-      }
-    }
-  }
-
-  // The GPU's power sensor lives on the same hwmon as its temperature, but is
-  // resolved on its own: gputemp.sensor may name a different chip entirely.
-  property string gpuPowerPath: ""
-
-  function resolveGpuPowerSensor() {
-    var drivers = ["amdgpu", "nouveau"]
-    for (var d = 0; d < drivers.length; d++) {
-      for (var key in hwmonNames) {
-        if (hwmonNames[key] === drivers[d]) {
-          gpuPowerPath = "/sys/class/hwmon/" + key + "/power1_average"
-          sampler.hasGpuPowerSensor = true
-          return
-        }
-      }
-    }
-  }
-
-  onHwmonNamesChanged: {
-    resolveTemperatureSensor()
-    resolveGpuTemperatureSensor()
-    resolveGpuPowerSensor()
-  }
+  onHwmonNamesChanged: resolveTemperatureSensor()
 
   FileView {
     id: temperatureFile
@@ -622,29 +789,4 @@ Item {
     blockLoading: true
     Component.onCompleted: if (readers.ready) readers.sampler.energyRangeUj = Parsers.parseFirstNumber(readers.boundedText(this))
   }
-
-  // Newer amdgpu kernels report the instantaneous power1_input instead of the
-  // averaged power1_average, so a missing average falls back to it once.
-  FileView {
-    id: gpuPowerFile
-    path: readers.gpuPowerPath
-    watchChanges: false
-    printErrors: false
-    onLoaded: if (readers.ready && readers.wantGpuPower) readers.sampler.applyGpuPower(readers.boundedText(this))
-    onLoadFailed: {
-      if (!readers.ready) return
-      if (readers.gpuPowerPath.endsWith("/power1_average"))
-        readers.gpuPowerPath = readers.gpuPowerPath.replace(/power1_average$/, "power1_input")
-      else readers.sampler.hasGpuPowerSensor = false
-    }
-  }
-
-  FileView {
-    id: gpuTemperatureFile
-    path: readers.gpuTemperatureInputPath
-    watchChanges: false
-    printErrors: false
-    onLoaded: if (readers.ready) readers.sampler.applyGpuTemperature(readers.boundedText(this))
-  }
-
 }

@@ -74,6 +74,16 @@ Eleven metrics, each of which you choose to show on the bar or keep in the popup
 | CPU power | package watts | watts over time |
 | GPU power | board watts | watts over time |
 
+**More than one GPU** (an APU beside a discrete card, say): every card is read,
+each from its own device and its own sensor, and each card's readings are
+metrics of their own. The popup has a GPU, VRAM, temperature and power section
+per card, titled with the card's name from `pci.ids`, and each one is
+pinned and logged on its own — the discrete card's power on the bar, say, and
+the integrated card's VRAM only in the log. The plain ids (`gpu`, `vram`,
+`gputemp`, `gpupower`) are the **main card**: the one `gpu.card` names,
+otherwise the one with the most VRAM. A further card's ids carry its number:
+`gpu2`, `vram2`, `gputemp2`, `gpupower2`, up to four cards.
+
 The CPU gauge plots the **busiest core**, not the average across all of them.
 The kernel's aggregate averages every core, which hides the load people
 usually want to see: on a 16-core machine one core pegged at 93% reads as 7%
@@ -213,7 +223,10 @@ Files go to `$XDG_STATE_HOME/omarchy-sysmetrics/logs/` (normally
   `mem_pct`, `swap_pct`, `gpu_pct`, `vram_pct`, `gputemp_c`, `net_rx_Bps`,
   `net_tx_Bps`, `disk_read_Bps`, `disk_write_Bps`, `storage_pct`, `cpu_w`,
   `gpu_w`). A missing
-  reading is an empty field, not 0.
+  reading is an empty field, not 0. With more than one GPU the plain GPU
+  columns are the main card, and each further card gets the same columns with
+  its number in the name: `gpu2_pct`, `vram2_pct`, `gputemp2_c`, `gpu2_w`. Only the
+  cards you chose to log get columns.
 - `<stamp>-processes.csv.zst` — every 30 seconds, the five processes that used
   the most CPU and the five holding the most memory in that window:
   `t_ms,pid,comm,cpu_s,rss_bytes`. `cpu_s` is CPU time spent *in that window*,
@@ -268,8 +281,10 @@ want to the widget's entry in `~/.config/omarchy/shell.json`:
 }
 ```
 
-`"auto"` resolves at runtime: the GPU by its DRM driver, temperature sensors by
-their hwmon name, the network interface by the default route, and disks by
+`"auto"` resolves at runtime: GPUs by their DRM driver (the main one by VRAM
+size; set `gpu.card`, e.g. `"card0"`, to choose it), each GPU's sensor by the
+PCI device it shares with the card, other temperature sensors by their hwmon
+name, the network interface by the default route, and disks by
 excluding partitions and virtual devices. None of these are addressable by a
 fixed path — DRM card numbers and hwmon indices are not stable across reboots.
 

@@ -21,7 +21,36 @@ BarWidget {
 
   // ---- Presentation per metric -------------------------------------------
 
-  function iconFor(id) {
+  // A GPU gauge reads one card: gpu/vram/gputemp/gpupower the main card,
+  // gpu2/vram2/... the next ones. Null for a card this machine does not have,
+  // which reads as a dash, like any other missing sensor.
+  function gpuFor(id) {
+    var index = Config.gpuIndex(id)
+    return index < 0 ? null : (sampler.gpus[index] || null)
+  }
+
+  function gpuValue(id) {
+    var gpu = gpuFor(id)
+    var base = Config.baseMetricId(id)
+    if (!gpu) return NaN
+    if (base === "gpu") return gpu.usage
+    if (base === "vram") return sampler.gpuVramPercent(gpu)
+    if (base === "gputemp") return gpu.temperature
+    return gpu.power
+  }
+
+  function gpuSeries(id) {
+    var gpu = gpuFor(id)
+    var base = Config.baseMetricId(id)
+    if (!gpu) return []
+    if (base === "gpu") return Engine.ringValues(gpu.usageHistory)
+    if (base === "vram") return Engine.ringValues(gpu.vramHistory)
+    if (base === "gputemp") return Engine.ringValues(gpu.temperatureHistory)
+    return Engine.ringValues(gpu.powerHistory)
+  }
+
+  function iconFor(metricId) {
+    var id = Config.baseMetricId(metricId)
     // Escaped as UTF-16 surrogate pairs: most of these glyphs live above
     // U+FFFF, where a bare \uXXXXX escape would be misread as a 4-digit
     // escape plus a stray character, and a literal glyph does not survive
@@ -52,13 +81,13 @@ BarWidget {
     if (id === "disk")
       return Format.formatRateCompact(sampler.diskRead) + "\u2009\u2193 "
            + Format.formatRateCompact(sampler.diskWrite) + "\u2009\u2191"
-    if (id === "gpu") return Format.formatPercent(sampler.gpuUsage)
-    if (id === "vram") return Format.formatPercent(sampler.vramPercent)
+    var base = Config.baseMetricId(id)
+    if (base === "gpu" || base === "vram") return Format.formatPercent(gpuValue(id))
+    if (base === "gputemp") return Format.formatTempShort(gpuValue(id))
+    if (base === "gpupower") return Format.formatWatts(gpuValue(id))
     if (id === "storage") return Format.formatPercent(sampler.storagePercent)
     if (id === "cputemp") return Format.formatTempShort(sampler.temperature)
-    if (id === "gputemp") return Format.formatTempShort(sampler.gpuTemperature)
     if (id === "cpupower") return Format.formatWatts(sampler.cpuPower)
-    if (id === "gpupower") return Format.formatWatts(sampler.gpuPower)
     return Format.formatPercent(sampler.cpuUsage)
   }
 
@@ -75,10 +104,10 @@ BarWidget {
                                     Engine.ringValues(sampler.diskWriteHistory)],
                                    config.disk.minCeiling)
     if (id === "cputemp") return config.cputemp.range[1]
-    if (id === "gputemp") return config.gputemp.range[1]
+    if (Config.baseMetricId(id) === "gputemp") return config.gputemp.range[1]
     // Floored at 50 W so an idle desktop does not fill the plot.
     if (id === "cpupower") return Engine.rollingCeiling([Engine.ringValues(sampler.cpuPowerHistory)], 50)
-    if (id === "gpupower") return Engine.rollingCeiling([Engine.ringValues(sampler.gpuPowerHistory)], 50)
+    if (Config.baseMetricId(id) === "gpupower") return Engine.rollingCeiling([gpuSeries(id)], 50)
     return 100
   }
 
@@ -87,13 +116,10 @@ BarWidget {
     if (id === "memory") return Engine.ringValues(sampler.memoryHistory)
     if (id === "network") return Engine.ringValues(sampler.networkRxHistory)
     if (id === "disk") return Engine.ringValues(sampler.diskReadHistory)
-    if (id === "gpu") return Engine.ringValues(sampler.gpuHistory)
-    if (id === "vram") return Engine.ringValues(sampler.vramHistory)
+    if (Config.gpuIndex(id) >= 0) return gpuSeries(id)
     if (id === "storage") return Engine.ringValues(sampler.storageHistory)
     if (id === "cputemp") return Engine.ringValues(sampler.temperatureHistory)
-    if (id === "gputemp") return Engine.ringValues(sampler.gpuTemperatureHistory)
     if (id === "cpupower") return Engine.ringValues(sampler.cpuPowerHistory)
-    if (id === "gpupower") return Engine.ringValues(sampler.gpuPowerHistory)
     return Engine.ringValues(sampler.cpuHistory)
   }
 
@@ -113,7 +139,8 @@ BarWidget {
   // a two-directional rate loses half its meaning drawn as a single line; and
   // a reading that sits at zero much of the time invents activity when a line
   // interpolates across the gaps.
-  function modeFor(id) {
+  function modeFor(metricId) {
+    var id = Config.baseMetricId(metricId)
     if (id === "network" || id === "disk") return "mirror"
     if (id === "cputemp" || id === "gputemp") return "line"
     if (id === "gpu") return "columns"
@@ -123,12 +150,14 @@ BarWidget {
   // Temperatures are plotted across the band they actually live in. Measured
   // from 0 C, an idle-to-throttle swing occupies a couple of pixels and a
   // thermal event looks like nothing at all.
-  function floorFor(id) {
+  function floorFor(metricId) {
+    var id = Config.baseMetricId(metricId)
     if (id === "cputemp" || id === "gputemp") return config.cputemp.range[0]
     return 0
   }
 
-  function urgentValueFor(id) {
+  function urgentValueFor(metricId) {
+    var id = Config.baseMetricId(metricId)
     if (id === "cputemp") return config.cputemp.urgent
     if (id === "gputemp") return config.gputemp.urgent
     return NaN
@@ -164,11 +193,12 @@ BarWidget {
     void sampler.revisionOf(id)
     if (id === "cpu") return sampler.cpuUsage >= config.cpu.urgent
     if (id === "memory") return sampler.memory.percent >= config.memory.urgent
-    if (id === "gpu") return sampler.gpuUsage >= config.gpu.urgent
-    if (id === "vram") return sampler.vramPercent >= config.vram.urgent
+    var base = Config.baseMetricId(id)
+    if (base === "gpu") return gpuValue(id) >= config.gpu.urgent
+    if (base === "vram") return gpuValue(id) >= config.vram.urgent
+    if (base === "gputemp") return gpuValue(id) >= config.gputemp.urgent
     if (id === "storage") return sampler.storagePercent >= config.storage.urgent
     if (id === "cputemp") return sampler.temperature >= config.cputemp.urgent
-    if (id === "gputemp") return sampler.gpuTemperature >= config.gputemp.urgent
     return false                       // rates have no meaningful threshold
   }
 
@@ -181,7 +211,8 @@ BarWidget {
   // than as a flat run of unrelated numbers.
   function deviceFor(id) {
     if (id === "cpu" || id === "cputemp" || id === "cpupower" || id === "memory") return "cpu"
-    if (id === "gpu" || id === "vram" || id === "gputemp" || id === "gpupower") return "gpu"
+    // Each card is its own device, so a second GPU's gauges form their own group.
+    if (Config.gpuIndex(id) >= 0) return "gpu" + Config.gpuIndex(id)
     return "io"
   }
 
@@ -192,7 +223,8 @@ BarWidget {
     return deviceFor(config.metrics[index]) !== deviceFor(config.metrics[index - 1])
   }
 
-  function labelTemplateFor(id) {
+  function labelTemplateFor(metricId) {
+    var id = Config.baseMetricId(metricId)
     if (id === "network" || id === "disk")
       return "888M\u2009\u2193 888M\u2009\u2191"
     if (id === "cputemp" || id === "gputemp") return "100\u00b0"
@@ -430,7 +462,7 @@ BarWidget {
           urgentAt: root.urgentValueFor(gauge.modelData)
           // The threshold zone is the redundant, non-colour half of the
           // urgency signal, and it only means anything on a banded axis.
-          showThreshold: gauge.modelData === "cputemp" || gauge.modelData === "gputemp"
+          showThreshold: gauge.modelData === "cputemp" || Config.baseMetricId(gauge.modelData) === "gputemp"
           emphasizeLowLoad: root.config.emphasizeLowLoad
           // This gauge's own samples, not every metric's: a shared counter
           // repainted every canvas on the bar on each metric's sample.

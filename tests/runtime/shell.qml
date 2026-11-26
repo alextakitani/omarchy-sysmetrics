@@ -487,6 +487,23 @@ ShellRoot {
     // Rows written while the writer was still starting once landed first.
     check("the metrics header is the first line",
           recorded[1] === "t_ms,cpu_max_pct,cpu_avg_pct,gputemp_c")
+    var metricRows = recorded.slice(2, recorded.indexOf("t_ms,pid,comm,cpu_s,rss_bytes"))
+    check("every row has a cell per header column", metricRows.length > 0
+          && metricRows.every(l => l.split(",").length === recorded[1].split(",").length))
+
+    // ---- GPUs ------------------------------------------------------------
+    // Against this machine's own sysfs: whatever cards it has, each must be
+    // read from its own device and its own sensor, never another card's.
+    var gpus = sampler.gpus
+    check("GPU discovery ran", sampler.gpusResolved)
+    check("every GPU reads its own device", gpus.every((g, i) =>
+          gpus.findIndex(o => o.devicePath === g.devicePath) === i))
+    check("no two GPUs share a temperature sensor", gpus.every((g, i) => g.temperaturePath === ""
+          || gpus.findIndex(o => o.temperaturePath === g.temperaturePath) === i))
+    check("the bar's GPU rings are the main card's",
+          gpus.length === 0 || (sampler.gpuHistory === gpus[0].usageHistory
+                                && sampler.gpuCard === gpus[0].card))
+    notes.push("info GPUs: " + (gpus.map(g => g.label + " busy " + g.usage + "% vram " + g.vramTotal).join(", ") || "none"))
     check("the recording has rows", recorded.length > 4 && /^\d+,/.test(recorded[2]))
     check("the processes file has its header",
           recorded.indexOf("t_ms,pid,comm,cpu_s,rss_bytes") > 1)

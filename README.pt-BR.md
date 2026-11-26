@@ -82,6 +82,17 @@ Onze métricas, e você escolhe se cada uma aparece na barra ou fica no popup
 | CPU power (consumo da CPU) | watts do pacote | watts ao longo do tempo |
 | GPU power (consumo da GPU) | watts da placa | watts ao longo do tempo |
 
+**Mais de uma GPU** (uma APU ao lado de uma placa dedicada, por exemplo): todas
+as placas são lidas, cada uma do seu próprio dispositivo e do seu próprio
+sensor, e as leituras de cada placa são métricas próprias. O popup tem uma
+seção de GPU, VRAM, temperatura e consumo por placa, com o nome da placa
+tirado do `pci.ids`, e cada uma é fixada e registrada separadamente — o consumo
+da placa dedicada na barra, por exemplo, e a VRAM da integrada só no log. Os
+ids sem número (`gpu`, `vram`, `gputemp`, `gpupower`) são da **placa
+principal**: a que o `gpu.card` indicar, senão a que tem mais VRAM. Os ids de
+uma placa a mais levam o número dela: `gpu2`, `vram2`, `gputemp2`,
+`gpupower2`, até quatro placas.
+
 O medidor de CPU plota o **núcleo mais ocupado**, não a média de todos eles. O
 agregado do kernel tira a média de todos os núcleos, o que esconde justamente
 a carga que as pessoas costumam querer ver: numa máquina de 16 núcleos, um
@@ -229,7 +240,11 @@ Os arquivos vão para `$XDG_STATE_HOME/omarchy-sysmetrics/logs/` (normalmente
   ms) mais as colunas escolhidas (`cpu_max_pct`, `cpu_avg_pct`, `cputemp_c`,
   `mem_pct`, `swap_pct`, `gpu_pct`, `vram_pct`, `gputemp_c`, `net_rx_Bps`,
   `net_tx_Bps`, `disk_read_Bps`, `disk_write_Bps`, `storage_pct`, `cpu_w`,
-  `gpu_w`). Uma leitura ausente é um campo vazio, não 0.
+  `gpu_w`). Uma leitura ausente é um campo vazio, não 0. Com mais de uma GPU,
+  as colunas de GPU sem número são da placa principal, e cada placa a mais
+  ganha as mesmas colunas com o número dela no nome: `gpu2_pct`, `vram2_pct`,
+  `gputemp2_c`, `gpu2_w`. Só as placas que você escolheu registrar
+  ganham colunas.
 - `<stamp>-processes.csv.zst` — a cada 30 segundos, os cinco processos que
   mais usaram CPU e os cinco que mais seguravam memória naquela janela:
   `t_ms,pid,comm,cpu_s,rss_bytes`. `cpu_s` é o tempo de CPU gasto *naquela
@@ -285,8 +300,10 @@ Adicione as chaves que quiser à entrada do widget em
 }
 ```
 
-`"auto"` é resolvido em tempo de execução: a GPU pelo driver DRM, os sensores
-de temperatura pelo nome no hwmon, a interface de rede pela rota padrão, e os
+`"auto"` é resolvido em tempo de execução: as GPUs pelo driver DRM (a
+principal pelo tamanho da VRAM; use `gpu.card`, por exemplo `"card0"`, para
+escolhê-la), o sensor de cada GPU pelo dispositivo PCI que ele divide com a
+placa, os outros sensores de temperatura pelo nome no hwmon, a interface de rede pela rota padrão, e os
 discos excluindo partições e dispositivos virtuais. Nenhum deles é acessível
 por um caminho fixo — os números de placa do DRM e os índices do hwmon não são
 estáveis entre reboots.

@@ -6,6 +6,26 @@ Mudanças relevantes no System Metrics. As versões seguem o [versionamento sem�
 o dígito de patch é uma correção, o dígito minor acrescenta algo que uma configuração pode
 pedir, e nada precisou de um bump major até agora.
 
+## 1.6.0 — 2026-11-26
+### Adicionado
+
+- **Todas as GPUs são lidas, não só a primeira, e cada uma é uma métrica
+  própria.** Numa máquina com mais de uma placa, o popup tem seções de GPU,
+  VRAM, temperatura e consumo por placa, com o nome da placa no título, e cada uma é
+  fixada e registrada separadamente: `gpu2`, `vram2`, `gputemp2`, `gpupower2`
+  para a segunda placa, registradas como `gpu2_pct`, `vram2_pct`, `gputemp2_c`,
+  `gpu2_w`. Os ids sem número continuam sendo da placa principal: a que o
+  `gpu.card` indicar, senão a que tem mais VRAM.
+
+### Corrigido
+
+- **As leituras de GPU não misturam mais duas placas.** Ocupação e VRAM vinham
+  da primeira placa com driver conhecido, enquanto temperatura e consumo vinham
+  do primeiro hwmon chamado `amdgpu`; ao lado de uma APU eram placas
+  diferentes, e o log mostrava uma GPU ociosa a 0% consumindo 150 W. O sensor de
+  cada placa agora é associado a ela pelo endereço PCI, e a placa principal é a
+  dedicada.
+
 ## 1.5.0 — 2026-10-08
 ### Adicionado
 

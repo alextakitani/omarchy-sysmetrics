@@ -94,7 +94,7 @@ Item {
   function analyze() {
     if (active) flush()
     Quickshell.execDetached(["bash", "-lc", "cd \"$1\" && exec omarchy-agent-prompt \"$2\"",
-                             "bash", directory, Log.analysisPrompt(directory)])
+                             "bash", directory, Log.analysisPrompt(directory, sampler ? sampler.gpuLabels : [])])
   }
 
   // Dropping the session destroys the writers, which closes their stdin; each
@@ -118,7 +118,7 @@ Item {
   function snapshot() {
     var s = sampler
     var mem = s.memory
-    return {
+    var out = {
       cpu: s.cpuUsage,
       cpuAvg: s.cpuAggregate,
       cputemp: s.temperature,
@@ -137,6 +137,16 @@ Item {
       cpuPower: s.cpuPower,
       gpuPower: s.gpuPower
     }
+    // Every further card under its number: gpu2, vram2, gputemp2, gpuPower2.
+    // Only the ones selected become columns; the rest are ignored.
+    for (var g = 1; g < s.gpus.length; g++) {
+      var gpu = s.gpus[g]
+      out["gpu" + (g + 1)] = gpu.usage
+      out["vram" + (g + 1)] = s.gpuVramPercent(gpu)
+      out["gputemp" + (g + 1)] = gpu.temperature
+      out["gpuPower" + (g + 1)] = gpu.power
+    }
+    return out
   }
 
   // Called by the sampling timer, before it starts the next round of reads.

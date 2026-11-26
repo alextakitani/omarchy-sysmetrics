@@ -60,6 +60,34 @@ describe('processes file', () => {
   })
 })
 
+describe('more than one GPU', () => {
+  it('the plain ids are the main card, exactly as before', () => {
+    assert.equal(L.metricsHeader(['cpu', 'gpu', 'vram', 'gputemp', 'gpupower']),
+      't_ms,cpu_max_pct,cpu_avg_pct,gpu_pct,vram_pct,gputemp_c,gpu_w\n')
+  })
+
+  it('each further card is its own selection, with numbered columns', () => {
+    assert.equal(L.metricsHeader(['gpu', 'gpupower2', 'vram2', 'gputemp3']),
+      't_ms,gpu_pct,gpu2_w,vram2_pct,gputemp3_c\n')
+    assert.deepEqual(L.metricIds(['vram2', 'vram9', 'gpu0', 'gpu']), ['vram2', 'gpu'])
+  })
+
+  it('rows read each card under its own key, cell for cell with the header', () => {
+    const ids = ['gpu', 'gpu2', 'vram', 'vram2', 'gpupower2']
+    const snap = { gpu: 77, gpu2: 0, vram: 50.8, vram2: 0.8, gpuPower2: 0.066 }
+    const row = L.metricsRow(ids, snap, 1)
+    assert.equal(row, '1,77,0,50.8,0.8,0.1\n')
+    assert.equal(row.split(',').length, L.metricsHeader(ids).split(',').length)
+  })
+
+  it('the prompt names which card each number is, only when there are several', () => {
+    assert.ok(!L.analysisPrompt('/x', ['Radeon RX 6700']).includes('On this machine'))
+    const prompt = L.analysisPrompt('/x', ['Radeon RX 6700, card1', 'Radeon 610M, card0'])
+    assert.ok(prompt.includes('2: Radeon 610M, card0'))
+    assert.ok(prompt.includes('gpu_w): Radeon RX 6700, card1'))
+  })
+})
+
 describe('analysis prompt', () => {
   const prompt = L.analysisPrompt('/home/u/.local/state/omarchy-sysmetrics/logs')
 

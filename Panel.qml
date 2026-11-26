@@ -3,6 +3,7 @@ import qs.Commons
 import qs.Ui as Ui
 import "popup" as Detail
 import "js/format.js" as Format
+import "js/config.js" as Config
 
 // Detail popup: one section per enabled metric, in the order the user
 // configured them. The heavy reading (per-core load, VRAM, load average) is
@@ -37,6 +38,9 @@ Ui.Panel {
   // the flag stuck false, or a collapsed one would keep sampling forever.
   Component.onCompleted: if (sampler) sampler.processesExpanded = processesExpanded
   Component.onDestruction: if (sampler) sampler.processesExpanded = false
+
+  // Every card discovery found, up to as many as there are metric ids for.
+  readonly property int gpuCount: sampler ? Math.min(sampler.gpus.length, Config.MAX_GPUS) : 0
 
   function hasMetric(id) {
     return metrics.indexOf(id) >= 0
@@ -449,26 +453,41 @@ Ui.Panel {
             onLogToggled: root.toggleLogged("processes")
           }
 
-          Detail.GpuDetail {
-            width: parent.width
-            showSeparator: !root.isFirstVisible("gpu")
-            sampler: root.sampler
-            metricId: "gpu"
-            pinned: root.hasMetric("gpu")
-            onPinToggled: root.togglePin("gpu")
-            logged: root.isLogged("gpu")
-            onLogToggled: root.toggleLogged("gpu")
-          }
+          // One busy and one VRAM section per card, card by card. Each has
+          // its own id (gpu, vram for the main card; gpu2, vram2 for the
+          // next), so every card's reading is pinned and logged on its own.
+          Repeater {
+            model: root.gpuCount
+            delegate: Column {
+              id: gpuCard
+              required property int index
+              readonly property string busyId: Config.gpuMetricId("gpu", index)
+              readonly property string vramId: Config.gpuMetricId("vram", index)
+              width: parent ? parent.width : 0
+              spacing: content.spacing
 
-          Detail.VramDetail {
-            width: parent.width
-            showSeparator: !root.isFirstVisible("vram")
-            sampler: root.sampler
-            metricId: "vram"
-            pinned: root.hasMetric("vram")
-            onPinToggled: root.togglePin("vram")
-            logged: root.isLogged("vram")
-            onLogToggled: root.toggleLogged("vram")
+              Detail.GpuDetail {
+                width: parent.width
+                sampler: root.sampler
+                gpuIndex: gpuCard.index
+                metricId: gpuCard.busyId
+                pinned: root.hasMetric(gpuCard.busyId)
+                onPinToggled: root.togglePin(gpuCard.busyId)
+                logged: root.isLogged(gpuCard.busyId)
+                onLogToggled: root.toggleLogged(gpuCard.busyId)
+              }
+
+              Detail.VramDetail {
+                width: parent.width
+                sampler: root.sampler
+                gpuIndex: gpuCard.index
+                metricId: gpuCard.vramId
+                pinned: root.hasMetric(gpuCard.vramId)
+                onPinToggled: root.togglePin(gpuCard.vramId)
+                logged: root.isLogged(gpuCard.vramId)
+                onLogToggled: root.toggleLogged(gpuCard.vramId)
+              }
+            }
           }
 
           Detail.StorageDetail {
@@ -527,27 +546,40 @@ Ui.Panel {
             onLogToggled: root.toggleLogged("cpupower")
           }
 
-          Detail.GpuTemperatureDetail {
-            width: parent.width
-            showSeparator: !root.isFirstVisible("gputemp")
-            sampler: root.sampler
-            metricId: "gputemp"
-            pinned: root.hasMetric("gputemp")
-            onPinToggled: root.togglePin("gputemp")
-            logged: root.isLogged("gputemp")
-            onLogToggled: root.toggleLogged("gputemp")
-          }
+          // Temperature and power, likewise one pair per card.
+          Repeater {
+            model: root.gpuCount
+            delegate: Column {
+              id: gpuSensors
+              required property int index
+              readonly property string temperatureId: Config.gpuMetricId("gputemp", index)
+              readonly property string powerId: Config.gpuMetricId("gpupower", index)
+              width: parent ? parent.width : 0
+              spacing: content.spacing
 
-          Detail.PowerDetail {
-            width: parent.width
-            device: "gpu"
-            showSeparator: !root.isFirstVisible("gpupower")
-            sampler: root.sampler
-            metricId: "gpupower"
-            pinned: root.hasMetric("gpupower")
-            onPinToggled: root.togglePin("gpupower")
-            logged: root.isLogged("gpupower")
-            onLogToggled: root.toggleLogged("gpupower")
+              Detail.GpuTemperatureDetail {
+                width: parent.width
+                sampler: root.sampler
+                gpuIndex: gpuSensors.index
+                metricId: gpuSensors.temperatureId
+                pinned: root.hasMetric(gpuSensors.temperatureId)
+                onPinToggled: root.togglePin(gpuSensors.temperatureId)
+                logged: root.isLogged(gpuSensors.temperatureId)
+                onLogToggled: root.toggleLogged(gpuSensors.temperatureId)
+              }
+
+              Detail.PowerDetail {
+                width: parent.width
+                device: "gpu"
+                sampler: root.sampler
+                gpuIndex: gpuSensors.index
+                metricId: gpuSensors.powerId
+                pinned: root.hasMetric(gpuSensors.powerId)
+                onPinToggled: root.togglePin(gpuSensors.powerId)
+                logged: root.isLogged(gpuSensors.powerId)
+                onLogToggled: root.toggleLogged(gpuSensors.powerId)
+              }
+            }
           }
 
         }

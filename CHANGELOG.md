@@ -6,6 +6,25 @@ Notable changes to System Metrics. Versions follow [semantic versioning](https:/
 the patch digit is a fix, the minor digit adds something a config can ask for, and
 nothing has needed a major bump yet.
 
+## 1.6.0 — 2026-11-26
+### Added
+
+- **Every GPU is read, not just the first, and each is its own metric.** On a
+  machine with more than one card, the popup has GPU, VRAM, temperature and
+  power sections per card, titled with the card's name, and each is pinned
+  and logged on its own: `gpu2`, `vram2`, `gputemp2`, `gpupower2` for the
+  second card, logged as `gpu2_pct`, `vram2_pct`, `gputemp2_c`, `gpu2_w`. The
+  plain ids stay the main card: the one `gpu.card` names, otherwise the one
+  with the most VRAM.
+
+### Fixed
+
+- **GPU readings no longer mix two cards.** Busy and VRAM came from the first
+  card with a known driver, while temperature and power came from the first
+  hwmon named `amdgpu`; beside an APU those were different cards, so the log
+  showed an idle 0% GPU drawing 150 W. Each card's sensor is now matched to it
+  by PCI address, and the main card is the discrete one.
+
 ## 1.5.0 — 2026-10-08
 ### Added
 
